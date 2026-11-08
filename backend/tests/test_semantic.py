@@ -89,16 +89,86 @@ def test_filters_apply_to_semantic_results(client, tmp_path, sem):
     assert client.get("/api/search/semantic", params={"q": "ink", "currency": "XXX"}).json()["results"] == []
 
 
-def test_reprocessing_replaces_chunks_and_index_refreshes(client, tmp_path, sem):
-    upload(client, S.write_pdf(spec_with(["Printer toner"], 1), tmp_path / "a.pdf")); worker.run_all()
+
+def test_reprocessing_preserves_archived_chunks_and_refreshes_index(
+    client, tmp_path, sem
+):
+    upload(
+        client,
+        S.write_pdf(
+            spec_with(["Printer toner"], 1),
+            tmp_path / "a.pdf",
+        ),
+    )
+    worker.run_all()
+
     from app.db import connect
+
     with connect() as db:
-        before = db.execute("SELECT COUNT(*), MIN(id) FROM chunks").fetchone()
-    client.post("/api/documents/1/reprocess"); worker.run_all()
+        before = db.execute(
+            """
+            SELECT
+                COUNT(*),
+                MIN(id),
+                MIN(generation_id),
+                MAX(generation_id)
+            FROM chunks
+            """
+        ).fetchone()
+
+    assert before[0] > 0
+
+    response = client.post("/api/documents/1/reprocess")
+    assert response.status_code == 202
+    worker.run_all()
+
     with connect() as db:
-        after = db.execute("SELECT COUNT(*), MIN(id) FROM chunks").fetchone()
-    assert after[0] == before[0] and after[1] > before[1]               # same content, rewritten rows (no duplicates)
-    assert client.get("/api/search/semantic", params={"q": "ink"}).json()["results"][0]["filename"] == "a.pdf"
+        after = db.execute(
+            """
+            SELECT
+                COUNT(*),
+                MIN(id),
+                MIN(generation_id),
+                MAX(generation_id)
+            FROM chunks
+            """
+        ).fetchone()
+
+        active = db.execute(
+            """
+            SELECT active_generation
+            FROM documents
+            WHERE id=1
+            """
+        ).fetchone()["active_generation"]
+
+        active_chunks = db.execute(
+            """
+            SELECT COUNT(*)
+            FROM chunks
+            WHERE document_id=1 AND generation_id=?
+            """,
+            (active,),
+        ).fetchone()[0]
+
+    # Old chunks remain archived; new chunks belong to a new generation.
+    assert after[0] > before[0]
+    assert after[1] == before[1]
+    assert after[3] > before[3]
+
+    # The active generation contains the newly generated chunks.
+    assert active == after[3]
+    assert active_chunks == before[0]
+
+    # Search must return the document using its active generation.
+    results = client.get(
+        "/api/search/semantic",
+        params={"q": "ink"},
+    ).json()["results"]
+
+    assert results
+    assert results[0]["filename"] == "a.pdf"
+    assert len([r for r in results if r["filename"] == "a.pdf"]) == 1
 
 
 def test_reindex_backfills_documents_processed_while_disabled(client, tmp_path, monkeypatch):

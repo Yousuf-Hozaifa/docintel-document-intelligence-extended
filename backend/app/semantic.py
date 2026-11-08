@@ -132,46 +132,107 @@ def chunk_text(text: str, max_chars: int) -> list[str]:
 PAGE_BATCH = 50
 
 
-def embed_document(doc_id: int) -> int:
-    """(Re)build chunk embeddings for one document from its stored page text. Returns chunks written."""
+def embed_document(doc_id: int, generation_id: int | None = None) -> int:
+    """Build embeddings for one document generation without modifying other generations."""
     emb = get_embedder()
     if emb is None:
         return 0
+
     s = get_settings()
+
     with connect() as db:
-        db.execute("DELETE FROM chunks WHERE document_id=?", (doc_id,))
+        if generation_id is None:
+            doc = db.execute(
+                "SELECT active_generation FROM documents WHERE id=?",
+                (doc_id,),
+            ).fetchone()
+            if doc is None:
+                return 0
+            generation_id = doc["active_generation"]
+
+        db.execute(
+            "DELETE FROM chunks WHERE document_id=? AND generation_id=?",
+            (doc_id, generation_id),
+        )
+
     last, written = 0, 0
+
     while True:
         with connect() as db:
-            pages = db.execute("SELECT page_no, text FROM pages WHERE document_id=? AND page_no>? AND text!='' "
-                               "ORDER BY page_no LIMIT ?", (doc_id, last, PAGE_BATCH)).fetchall()
+            pages = db.execute(
+                "SELECT page_no, text FROM pages "
+                "WHERE document_id=? AND generation_id=? "
+                "AND page_no>? AND text!='' "
+                "ORDER BY page_no LIMIT ?",
+                (doc_id, generation_id, last, PAGE_BATCH),
+            ).fetchall()
+
         if not pages:
             break
+
         last = pages[-1]["page_no"]
-        rows = [(p["page_no"], i, c) for p in pages for i, c in enumerate(chunk_text(p["text"], s.chunk_chars))]
+
+        rows = [
+            (p["page_no"], i, c)
+            for p in pages
+            for i, c in enumerate(chunk_text(p["text"], s.chunk_chars))
+        ]
+
         if not rows:
             continue
-        vecs = emb.embed([r[2] for r in rows])            # CPU work happens outside any DB transaction
+
+        vecs = emb.embed([r[2] for r in rows])
+
         with connect() as db:
-            db.executemany("INSERT INTO chunks(document_id,page_no,chunk_idx,text,model,dim,embedding) VALUES (?,?,?,?,?,?,?)",
-                           [(doc_id, pn, ci, txt, emb.name, emb.dim, v.astype(np.float32).tobytes()) for (pn, ci, txt), v in zip(rows, vecs)])
+            db.executemany(
+                "INSERT INTO chunks "
+                "(document_id,generation_id,page_no,chunk_idx,text,model,dim,embedding) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                [
+                    (
+                        doc_id,
+                        generation_id,
+                        pn,
+                        ci,
+                        txt,
+                        emb.name,
+                        emb.dim,
+                        v.astype(np.float32).tobytes(),
+                    )
+                    for (pn, ci, txt), v in zip(rows, vecs)
+                ],
+            )
+
         written += len(rows)
+
     return written
 
 
-def embed_after_processing(doc_id: int) -> None:
-    """Pipeline hook: best-effort. A semantic-index failure is recorded but never fails the document."""
+
+def embed_after_processing(
+    doc_id: int,
+    generation_id: int | None = None,
+) -> None:
+    """Best-effort indexing; semantic failures never fail document processing."""
     if not enabled():
         return
-    t0 = time.perf_counter()
-    try:
-        n = embed_document(doc_id)
-        detail, event = f"chunks={n} seconds={time.perf_counter() - t0:.2f}", "embedded"
-    except Exception as e:  # noqa: BLE001
-        detail, event = f"{type(e).__name__}: {str(e)[:200]}", "embedding_failed"
-    with connect() as db:
-        add_event(db, doc_id, event, detail)
 
+    t0 = time.perf_counter()
+
+    try:
+        n = embed_document(doc_id, generation_id)
+        detail = f"chunks={n} seconds={time.perf_counter() - t0:.2f}"
+        event = "embedded"
+    except Exception as e:  # noqa: BLE001
+        detail = f"{type(e).__name__}: {str(e)[:200]}"
+        event = "embedding_failed"
+
+    try:
+        with connect() as db:
+            add_event(db, doc_id, event, detail)
+    except Exception:
+        # Event logging is also best-effort and must not fail processing.
+        pass
 
 # ------------------------------------------------------------------ in-memory index (brute force)
 class _Index:
@@ -187,35 +248,132 @@ _full_builds = 0   # counts complete rebuilds (observable in tests / benchmarks)
 
 
 def _read_chunks(db, model: str, dim: int, after_id: int):
-    rows = db.execute("SELECT id, document_id, page_no, embedding FROM chunks WHERE model=? AND id>? ORDER BY id", (model, after_id)).fetchall()
+    rows = db.execute(
+        """
+        SELECT c.id, c.document_id, c.page_no, c.embedding
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE c.model = ?
+          AND c.id > ?
+          AND c.generation_id = d.active_generation
+        ORDER BY c.id
+        """,
+        (model, after_id),
+    ).fetchall()
+
     matrix = np.empty((len(rows), dim), dtype=np.float32)
+
     for i, r in enumerate(rows):
         matrix[i] = np.frombuffer(r["embedding"], dtype=np.float32)
-    return matrix, [(r["id"], r["document_id"], r["page_no"]) for r in rows]
+
+    return matrix, [
+        (r["id"], r["document_id"], r["page_no"])
+        for r in rows
+    ]
+
 
 
 def get_index(model: str, dim: int) -> _Index:
-    """Matrix of all chunk vectors for the active model. Rebuilt from SQLite only when needed: if chunks were
-    purely appended since the last build (ids only grow) just the new rows are read; deletions force a full rebuild."""
+    """Build an index containing only active-generation chunks.
+
+    Append newly added chunks incrementally when the previous active
+    chunk set is unchanged. Rebuild when generations switch or chunks
+    are deleted.
+    """
     global _index, _full_builds
+
     with connect() as db:
-        count, max_id = db.execute("SELECT COUNT(*), COALESCE(MAX(id),0) FROM chunks WHERE model=?", (model,)).fetchone()
+        count, max_id = db.execute(
+            """
+            SELECT COUNT(*), COALESCE(MAX(c.id), 0)
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.model = ?
+              AND c.generation_id = d.active_generation
+            """,
+            (model,),
+        ).fetchone()
+
         key = (model, count, max_id)
+
         with _index_lock:
-            if _index is not None and _index.key == key:
-                return _index
             old = _index
-            if old is not None and old.key[0] == model and old.key[2] <= max_id and len(old.meta) > 0:
-                new_rows = db.execute("SELECT COUNT(*) FROM chunks WHERE model=? AND id>?", (model, old.key[2])).fetchone()[0]
-                if old.key[1] + new_rows == count:          # nothing was deleted: append only
-                    add, meta = _read_chunks(db, model, dim, old.key[2])
-                    _index = _Index(key, np.vstack([old.matrix, add]) if len(meta) else old.matrix, old.meta + meta)
+
+            # An unchanged empty index is safe to reuse.
+            if (
+                old is not None
+                and old.key == key
+                and not old.meta
+                and count == 0
+            ):
+                return old
+
+            if (
+                old is not None
+                and old.key[0] == model
+                and old.key[2] <= max_id
+                and len(old.meta) > 0
+            ):
+                old_ids = [item[0] for item in old.meta]
+
+                # Verify that every previously indexed chunk is
+                # still part of its document's active generation.
+                active_old_ids = [
+                    r[0]
+                    for r in db.execute(
+                        """
+                        SELECT c.id
+                        FROM chunks c
+                        JOIN documents d ON d.id = c.document_id
+                        WHERE c.model = ?
+                          AND c.id <= ?
+                          AND c.generation_id = d.active_generation
+                        ORDER BY c.id
+                        """,
+                        (model, old.key[2]),
+                    ).fetchall()
+                ]
+
+                new_rows = db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE c.model = ?
+                      AND c.id > ?
+                      AND c.generation_id = d.active_generation
+                    """,
+                    (model, old.key[2]),
+                ).fetchone()[0]
+
+                # Incremental update is safe only if no previously
+                # indexed active chunks were removed or replaced.
+                if (
+                    active_old_ids == old_ids
+                    and len(old.meta) + new_rows == count
+                ):
+                    add, meta = _read_chunks(
+                        db, model, dim, old.key[2]
+                    )
+
+                    _index = _Index(
+                        key,
+                        np.vstack([old.matrix, add])
+                        if len(meta)
+                        else old.matrix,
+                        old.meta + meta,
+                    )
+
                     return _index
+
+            # Rebuild when the active generation membership changes,
+            # chunks are deleted, or the model changes.
             matrix, meta = _read_chunks(db, model, dim, 0)
+
             _full_builds += 1
             _index = _Index(key, matrix, meta)
-            return _index
 
+            return _index
 
 def search(query: str, limit: int = 10, candidates: int = 300) -> list[dict]:
     """Rank documents by their best-matching chunk. Returns [{document_id, page_no, chunk_id, score, text}]."""
@@ -246,17 +404,40 @@ def search(query: str, limit: int = 10, candidates: int = 300) -> list[dict]:
 
 
 def keyword_docs(query: str, limit: int = 100) -> list[tuple[int, int, str]]:
-    """Documents matching ANY query word (FTS5, BM25-ranked): [(document_id, page_no, highlighted snippet)]."""
-    toks = [t for t in TOKEN_RE.findall(query.lower()) if t not in STOP]
+    """Search active-generation pages using FTS5."""
+    toks = [
+        t for t in TOKEN_RE.findall(query.lower())
+        if t not in STOP
+    ]
+
     if not toks:
         return []
+
     with connect() as db:
-        rows = db.execute("SELECT document_id, page_no, snippet(page_fts,0,'<mark>','</mark>',' … ',14) AS sn FROM page_fts "
-                          "WHERE page_fts MATCH ? ORDER BY rank LIMIT ?", (" OR ".join(f'"{t}"' for t in toks), limit * 3)).fetchall()
+        rows = db.execute(
+            """
+            SELECT f.document_id, f.page_no,
+                   snippet(page_fts, 0, '<mark>', '</mark>', ' … ', 14) AS sn
+            FROM page_fts f
+            JOIN documents d ON d.id = f.document_id
+            WHERE page_fts MATCH ?
+              AND f.generation_id = d.active_generation
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (
+                " OR ".join(f'"{t}"' for t in toks),
+                limit * 3,
+            ),
+        ).fetchall()
+
     seen, out = set(), []
+
     for r in rows:
         if r["document_id"] not in seen:
-            seen.add(r["document_id"]); out.append((r["document_id"], r["page_no"], r["sn"]))
+            seen.add(r["document_id"])
+            out.append((r["document_id"], r["page_no"], r["sn"]))
+
     return out[:limit]
 
 
@@ -284,42 +465,121 @@ def hybrid_search(query: str, limit: int = 10, k: int = 60) -> list[dict]:
 _reindex_state = {"running": False, "done": 0, "total": 0, "error": None}
 
 
+
 def status() -> dict:
     s = get_settings()
-    out = {"backend": s.semantic_backend, "enabled": enabled(), "reindex": dict(_reindex_state)}
+    out = {
+        "backend": s.semantic_backend,
+        "enabled": enabled(),
+        "reindex": dict(_reindex_state),
+    }
+
     if enabled():
         with connect() as db:
-            out["documents_total"] = db.execute("SELECT COUNT(*) FROM documents WHERE status IN ('completed','partial')").fetchone()[0]
-            out["chunks"] = db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-            out["documents_embedded"] = db.execute("SELECT COUNT(DISTINCT document_id) FROM chunks").fetchone()[0]
+            out["documents_total"] = db.execute(
+                """
+                SELECT COUNT(*)
+                FROM documents
+                WHERE status IN ('completed', 'partial')
+                """
+            ).fetchone()[0]
+
+            if _embedder is not None:
+                model_name = _embedder.name
+
+                out["chunks"] = db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE c.generation_id = d.active_generation
+                      AND c.model = ?
+                    """,
+                    (model_name,),
+                ).fetchone()[0]
+
+                out["documents_embedded"] = db.execute(
+                    """
+                    SELECT COUNT(DISTINCT c.document_id)
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE c.generation_id = d.active_generation
+                      AND c.model = ?
+                    """,
+                    (model_name,),
+                ).fetchone()[0]
+            else:
+                out["chunks"] = 0
+                out["documents_embedded"] = 0
+
         out["model_loaded"] = _embedder is not None
         out["model"] = _embedder.name if _embedder else None
+
     return out
 
 
 def start_reindex() -> bool:
-    """Embed every finished document that has no chunks yet, in a background thread (one at a time)."""
+    """Embed finished documents missing chunks for the current model."""
     if not enabled():
-        raise SemanticDisabled("Semantic search is disabled (set DOCINTEL_SEMANTIC=glove)")
-    get_embedder()  # fail fast (e.g. missing model files) before starting the thread
+        raise SemanticDisabled(
+            "Semantic search is disabled (set DOCINTEL_SEMANTIC=glove)"
+        )
+
+    embedder = get_embedder()
+
     if _reindex_state["running"]:
         return False
+
+    model_name = embedder.name
+
     with connect() as db:
-        ids = [r[0] for r in db.execute("SELECT id FROM documents WHERE status IN ('completed','partial') AND id NOT IN "
-                                        "(SELECT DISTINCT document_id FROM chunks) ORDER BY id")]
-    _reindex_state.update(running=True, done=0, total=len(ids), error=None)
+        rows = db.execute(
+            """
+            SELECT d.id, d.active_generation
+            FROM documents d
+            WHERE d.status IN ('completed', 'partial')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM chunks c
+                  WHERE c.document_id = d.id
+                    AND c.generation_id = d.active_generation
+                    AND c.model = ?
+              )
+            ORDER BY d.id
+            """,
+            (model_name,),
+        ).fetchall()
+
+    targets = [
+        (row["id"], row["active_generation"])
+        for row in rows
+    ]
+
+    _reindex_state.update(
+        running=True,
+        done=0,
+        total=len(targets),
+        error=None,
+    )
 
     def run():
         try:
-            for d in ids:
-                embed_document(d)
+            for doc_id, generation_id in targets:
+                embed_document(doc_id, generation_id)
                 _reindex_state["done"] += 1
-        except Exception as e:  # noqa: BLE001
-            _reindex_state["error"] = f"{type(e).__name__}: {e}"
+        except Exception as error:  # noqa: BLE001
+            _reindex_state["error"] = (
+                f"{type(error).__name__}: {error}"
+            )
         finally:
             _reindex_state["running"] = False
 
-    threading.Thread(target=run, name="semantic-reindex", daemon=True).start()
+    threading.Thread(
+        target=run,
+        name="semantic-reindex",
+        daemon=True,
+    ).start()
+
     return True
 
 

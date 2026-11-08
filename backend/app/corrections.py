@@ -53,9 +53,19 @@ def _log(db, inv_id, field, old, new, note):
 
 def apply_corrections(db, inv_id: int, patch: InvoicePatch) -> int:
     """Apply a patch inside the caller's transaction. Returns the number of changed values."""
-    inv = db.execute("SELECT * FROM invoices WHERE id=?", (inv_id,)).fetchone()
+    inv = db.execute(
+    """
+    SELECT i.*, d.active_generation
+    FROM invoices i
+    JOIN documents d ON d.id = i.document_id
+    WHERE i.id = ?
+    """,
+    (inv_id,),
+    ).fetchone()
     if inv is None:
         raise LookupError("Invoice not found")
+    if inv["generation_id"] != inv["active_generation"]:
+        raise CorrectionError("Archived invoices are read-only")
     for name in patch.fields:
         if name not in FIELDS:
             raise CorrectionError(f"Unknown field '{name}'. Allowed: {', '.join(FIELDS)}")
@@ -112,10 +122,27 @@ def apply_corrections(db, inv_id: int, patch: InvoicePatch) -> int:
 
 def set_issue_resolved(db, issue_id: int, resolved: bool) -> int:
     """Acknowledge (or re-open) a warning/error. Returns the invoice id."""
-    row = db.execute("SELECT v.id, v.invoice_id, v.rule_id, v.severity, i.document_id FROM validation_issues v "
-                     "JOIN invoices i ON i.id=v.invoice_id WHERE v.id=?", (issue_id,)).fetchone()
+    row = db.execute(
+        """
+        SELECT
+            v.id,
+            v.invoice_id,
+            v.rule_id,
+            v.severity,
+            i.document_id,
+            i.generation_id,
+            d.active_generation
+        FROM validation_issues v
+        JOIN invoices i ON i.id = v.invoice_id
+        JOIN documents d ON d.id = i.document_id
+        WHERE v.id = ?
+        """,
+        (issue_id,),
+    ).fetchone()
     if row is None:
         raise LookupError("Issue not found")
+    if row["generation_id"] != row["active_generation"]:
+        raise CorrectionError("Archived invoice issues are read-only")
     if row["severity"] == "info":
         raise CorrectionError("Informational results cannot be resolved")
     db.execute("UPDATE validation_issues SET resolved=? WHERE id=?", (int(resolved), issue_id))
