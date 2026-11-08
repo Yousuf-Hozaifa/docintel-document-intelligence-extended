@@ -240,6 +240,121 @@ def test_transient_failure_then_successful_reprocess(client, tmp_path, spec, mon
     after = client.get(f"/api/documents/{doc['id']}").json()
     assert after["status"] == "completed" and after["invoices"][0]["invoice_number"] == spec.number
 
+def test_failed_reprocess_preserves_previous_successful_results(
+    client, tmp_path, spec, monkeypatch
+):
+    from app import pipeline
+
+    # First processing succeeds.
+    upload(client, S.write_pdf(spec, tmp_path / "stable.pdf"))
+    worker.run_all()
+
+    doc = client.get("/api/documents").json()["documents"][0]
+    doc_id = doc["id"]
+    before = client.get(f"/api/documents/{doc_id}").json()
+
+    assert before["status"] == "completed"
+    assert len(before["invoices"]) == 1
+
+    original_invoice = before["invoices"][0]
+    original_invoice_id = original_invoice["id"]
+
+    assert original_invoice["invoice_number"] == spec.number
+
+    # Save a manual correction before attempting reprocessing.
+    correction_response = client.patch(
+        f"/api/invoices/{original_invoice_id}",
+        json={
+            "fields": {"customer": "Preserved Customer"},
+            "note": "Verify correction survives failed reprocessing",
+        },
+    )
+    assert correction_response.status_code == 200
+
+    correction_history_before = client.get(
+        f"/api/invoices/{original_invoice_id}/corrections"
+    ).json()["corrections"]
+
+    assert len(correction_history_before) == 1
+    assert correction_history_before[0]["new_value"] == "Preserved Customer"
+
+    # Queue a reprocessing attempt.
+    response = client.post(f"/api/documents/{doc_id}/reprocess")
+    assert response.status_code == 202
+
+    # Simulate a failure after the first page has been read.
+    real_open_pages = pipeline.open_pages
+
+    def failing_open_pages(path, kind):
+        total, pages = real_open_pages(path, kind)
+
+        def interrupted_pages():
+            iterator = iter(pages)
+            yield next(iterator)
+            raise OSError("Simulated disk failure during reprocessing")
+
+        return total, interrupted_pages()
+
+    monkeypatch.setattr(
+        pipeline,
+        "open_pages",
+        failing_open_pages,
+    )
+
+    worker.run_all()
+
+    # Previous successful results must remain active.
+    after = client.get(f"/api/documents/{doc_id}").json()
+
+    assert after["status"] == "completed"
+    assert len(after["invoices"]) == 1
+    assert after["invoices"][0]["id"] == original_invoice_id
+    assert after["invoices"][0]["invoice_number"] == spec.number
+
+    # The processing attempt must independently report failure.
+    assert after["job"]["status"] == "failed"
+
+    # Previous correction history must remain available.
+    correction_history_after = client.get(
+        f"/api/invoices/{original_invoice_id}/corrections"
+    ).json()["corrections"]
+
+    assert correction_history_after == correction_history_before
+
+    # Failed staging data must be discarded.
+    from app.db import connect
+
+    with connect() as db:
+        generation_state = db.execute(
+            """
+            SELECT active_generation, processing_generation
+            FROM documents
+            WHERE id = ?
+            """,
+            (doc_id,),
+        ).fetchone()
+
+        assert generation_state["processing_generation"] is None
+
+        assert db.execute(
+            """
+            SELECT COUNT(*)
+            FROM pages
+            WHERE document_id = ?
+              AND generation_id != ?
+            """,
+            (doc_id, generation_state["active_generation"]),
+        ).fetchone()[0] == 0
+
+        assert db.execute(
+            """
+            SELECT COUNT(*)
+            FROM invoices
+            WHERE document_id = ?
+              AND generation_id != ?
+            """,
+            (doc_id, generation_state["active_generation"]),
+        ).fetchone()[0] == 0
 
 def test_reprocess_discards_results_and_keeps_cross_flags_consistent(client, tmp_path, spec):
     upload(client, variant_pdf(spec, tmp_path / "a.pdf"), variant_pdf(spec, tmp_path / "b.pdf")); worker.run_all()
