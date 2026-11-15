@@ -1,7 +1,7 @@
 ﻿# Engineering Baseline
 
 ## Verification date
-2026-11-08
+Latest confirmed extended-branch regression run (before merge into extended/master).
 
 ## Environment
 - Development environment: Windows
@@ -16,11 +16,13 @@ Command:
 `python -m pytest tests -q`
 
 Results:
-- Passed: 130
+- Passed: 133
 - Skipped: 1
 - Failed: 0
 - Warnings: 2
-- Duration: 20.20 seconds
+- Duration: 21.88 seconds
+
+The tested feature branch was subsequently fast-forwarded into the extended repository's master branch without code changes.
 
 ## Warnings
 1. PyMuPDF: deprecated ByteString usage.
@@ -31,7 +33,7 @@ These warnings did not affect the test result.
 ## Git checkpoint
 - Branch: feature/platform-foundation
 - Remote: extended
-- Working tree: clean
+- Working tree: clean at the last confirmed checkpoint.
 
 ## Engineering policy
 - Preserve existing functionality while refactoring.
