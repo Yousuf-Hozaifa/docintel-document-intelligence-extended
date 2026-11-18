@@ -7,12 +7,14 @@ successful status and active generation when a later attempt fails.
 
 import threading
 import time
-import traceback
+import logging
 
 from .config import get_settings
 from .db import add_event, connect, now
 from .errors import DocumentError
 from .pipeline import process_document
+
+logger = logging.getLogger("docintel.worker")
 
 _stop = threading.Event()
 _threads: list[threading.Thread] = []
@@ -294,7 +296,16 @@ def run_one() -> bool:
                 )
 
         if not permanent:
-            traceback.print_exc()
+            logger.error(
+                "Document processing failed",
+                extra={
+                    "event": "document_processing_error",
+                    "job_id": job_id,
+                    "document_id": doc_id,
+                    "error_code": code,
+                    "exception_type": type(error).__name__,
+                },
+            )
 
     return True
 
@@ -316,7 +327,10 @@ def _loop() -> None:
                 _stop.wait(0.5)
 
         except Exception:  # noqa: BLE001
-            traceback.print_exc()
+            logger.error(
+                "Worker loop iteration failed",
+                extra={"event": "worker_loop_error"},
+            )
             _stop.wait(1.0)
 
 

@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from . import semantic, worker
 from .config import get_settings
+from .logging_config import configure_logging
 from .corrections import (
     CorrectionError,
     InvoicePatch,
@@ -39,6 +40,7 @@ from .validate import RULES
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
     init_db()
     worker.start()
     yield
