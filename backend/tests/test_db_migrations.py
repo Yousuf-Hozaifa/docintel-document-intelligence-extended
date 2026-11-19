@@ -1,66 +1,116 @@
-import subprocess
-import sys
-from pathlib import Path
+
+"""Tests for versioned SQLite database migrations."""
+
+import sqlite3
+
+import pytest
+
+from app.db import SCHEMA
+from app.db_migrations import run_migrations
 
 
-def test_legacy_database_migration():
-    """Verify legacy migration, data preservation and repeatability."""
+def make_database():
+    """Create an isolated database with the current base schema."""
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.executescript(SCHEMA)
+    return conn
 
-    backend_dir = Path(__file__).resolve().parents[1]
-    script = backend_dir / "test_legacy_migration.py"
 
-    result = subprocess.run(
-        [sys.executable, str(script)],
-        cwd=backend_dir,
-        capture_output=True,
-        text=True,
-    )
+def test_migrations_run_once():
+    conn = make_database()
 
-    output = result.stdout + result.stderr
+    try:
+        run_migrations(conn)
+        first = conn.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
 
-    assert result.returncode == 0, output
+        run_migrations(conn)
+        second = conn.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
 
-    expected_checks = [
-        "PASS: Repeated database initialization",
-        "PASS: document preserved",
-        "PASS: page preserved",
-        "PASS: invoice preserved",
-        "PASS: line item preserved",
-        "PASS: validation issue preserved",
-        "PASS: correction preserved",
-        "PASS: semantic chunk preserved",
-        "PASS: invoice number key migrated",
-        "PASS: FTS search works",
-        "PASS: foreign keys valid",
-        "Legacy migration test PASSED.",
-    ]
+        assert len(first) == 1
+        assert [tuple(row) for row in first] == [
+            tuple(row) for row in second
+        ]
+    finally:
+        conn.close()
 
-    for check in expected_checks:
-        assert check in output, f"Missing expected check: {check}"
 
-def test_missing_fts_index_is_rebuilt():
-    """Verify that a missing FTS index is rebuilt without duplicate rows."""
+def test_migration_preserves_existing_invoice_data():
+    conn = make_database()
 
-    backend_dir = Path(__file__).resolve().parents[1]
-    script = backend_dir / "test_missing_fts.py"
+    try:
+        conn.execute("""
+            INSERT INTO documents (
+                filename, stored_name, sha256, size_bytes,
+                created_at, updated_at
+            )
+            VALUES ('invoice.pdf', 'stored.pdf', 'abc123', 100,
+                    '2026-01-01', '2026-01-01')
+        """)
 
-    result = subprocess.run(
-        [sys.executable, str(script)],
-        cwd=backend_dir,
-        capture_output=True,
-        text=True,
-    )
+        conn.execute("""
+            INSERT INTO invoices (
+                document_id, seq, page_start, page_end,
+                fields_json, invoice_number, extractor
+            )
+            VALUES (1, 1, 1, 1, '{}', 'INV-2026-001', 'test')
+        """)
 
-    output = result.stdout + result.stderr
+        run_migrations(conn)
 
-    assert result.returncode == 0, output
+        invoice = conn.execute(
+            """
+            SELECT invoice_number, num_key
+            FROM invoices
+            WHERE id=1
+            """
+        ).fetchone()
 
-    expected_checks = [
-        "PASS: Generation 1 searchable",
-        "PASS: Generation 2 searchable with correct generation ID",
-        "PASS: Exactly two page records indexed",
-        "Missing FTS recovery test PASSED.",
-    ]
+        assert invoice["invoice_number"] == "INV-2026-001"
+        assert invoice["num_key"] == "inv2026001"
 
-    for check in expected_checks:
-        assert check in output, f"Missing expected check: {check}"
+        count = conn.execute(
+            "SELECT COUNT(*) FROM documents"
+        ).fetchone()[0]
+
+        assert count == 1
+
+        applied = conn.execute(
+            "SELECT COUNT(*) FROM schema_migrations"
+        ).fetchone()[0]
+
+        assert applied == 1
+
+    finally:
+        conn.close()
+
+
+def test_failed_migration_is_not_recorded():
+    conn = make_database()
+
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(
+                    "ALTER TABLE invoices ADD COLUMN test_column TEXT"
+                )
+                raise sqlite3.OperationalError("Simulated migration failure")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(invoices)")
+        }
+
+        assert "test_column" not in columns
+
+    finally:
+        conn.close()
