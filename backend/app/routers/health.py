@@ -1,0 +1,30 @@
+﻿"""Health and validation-rules API endpoints."""
+
+from fastapi import APIRouter
+
+from ..readers import ocr_status
+from ..validate import RULES
+
+
+router = APIRouter()
+
+
+@router.get("/health")
+def health():
+    """Report API and OCR availability."""
+    status = ocr_status()
+
+    return {
+        "status": "ok",
+        "ocr": {
+            "available": status["available"],
+            "version": status["version"],
+            "hint": status["hint"],
+        },
+    }
+
+
+@router.get("/rules")
+def rules():
+    """Return the document validation rules."""
+    return RULES
