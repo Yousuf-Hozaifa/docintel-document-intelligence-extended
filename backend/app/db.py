@@ -364,79 +364,32 @@ def _migrate_generations(conn: sqlite3.Connection) -> None:
 
 
 
+
 def init_db() -> None:
+    """Initialize the database and apply pending schema migrations."""
     s = get_settings()
     s.upload_dir.mkdir(parents=True, exist_ok=True)
     conn = _open()
 
     try:
-        # Create any missing tables first.
-        # Existing tables and their records remain intact.
+        # Create missing tables without replacing existing tables or data.
+        conn.execute("PRAGMA foreign_keys=OFF")
         conn.executescript(SCHEMA)
 
-        # Disable foreign-key enforcement during the pages table rebuild.
-        conn.execute("PRAGMA foreign_keys=OFF")
-        conn.execute("BEGIN IMMEDIATE")
+        from .db_migrations import run_migrations
 
-        try:
-            # Add generation tracking to legacy databases.
-            _migrate_generations(conn)
+        # Apply versioned schema migrations.
+        run_migrations(conn)
 
-            # Add num_key if it does not exist.
-            invoice_columns = _columns(conn, "invoices")
-
-            if "num_key" not in invoice_columns:
-                conn.execute(
-                    "ALTER TABLE invoices ADD COLUMN num_key TEXT"
-                )
-
-            # Backfill missing invoice number keys.
-            # Existing non-null keys are preserved.
-            for row in conn.execute(
-                """
-                SELECT id, invoice_number
-                FROM invoices
-                WHERE num_key IS NULL
-                """
-            ).fetchall():
-                key = "".join(
-                    ch for ch in (row["invoice_number"] or "").lower()
-                    if ch.isalnum()
-                ) or None
-
-                conn.execute(
-                    "UPDATE invoices SET num_key=? WHERE id=?",
-                    (key, row["id"]),
-                )
-
-            # Add OCR confidence to legacy line-item tables.
-            line_item_columns = _columns(conn, "line_items")
-
-            if "ocr_conf" not in line_item_columns:
-                conn.execute(
-                    "ALTER TABLE line_items ADD COLUMN ocr_conf REAL"
-                )
-
-            # Create the invoice number lookup index after num_key exists.
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS ix_invoices_numkey
-                ON invoices(num_key)
-                """
-            )
-
-            conn.execute("COMMIT")
-
-        except BaseException:
-            if conn.in_transaction:
-                conn.execute("ROLLBACK")
-            raise
-
-        finally:
-            # Restore foreign-key enforcement.
-            conn.execute("PRAGMA foreign_keys=ON")
+        # Preserve the original FTS recovery and consistency checks.
+        _migrate_generations(conn)
 
     finally:
+        # Restore foreign-key enforcement before closing.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+
+        conn.execute("PRAGMA foreign_keys=ON")
         conn.close()
 
 
