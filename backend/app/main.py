@@ -2,8 +2,6 @@
 """FastAPI application: upload, status, results, search."""
 
 
-import hmac
-import json
 import os
 
 
@@ -30,42 +28,23 @@ from .routers.documents import router as documents_router
 from .routers.invoice_review import router as invoice_review_router
 from .routers.search import router as search_router
 from .routers.jobs import router as jobs_router
+from .tenant_auth import bootstrap_legacy_api_key, require_tenant
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
     init_db()
+    bootstrap_legacy_api_key()
     worker.start()
     yield
     worker.stop()
-
-
-def require_key(
-    request: Request,
-    x_api_key: str | None = Header(default=None),
-):
-    """Optional shared-secret auth; health checks stay open."""
-    expected = os.environ.get("DOCINTEL_API_KEY")
-
-    if (
-        not expected
-        or request.url.path == "/api/health"
-        or request.method == "OPTIONS"
-    ):
-        return
-
-    if not x_api_key or not hmac.compare_digest(
-        x_api_key.encode(),
-        expected.encode(),
-    ):
-        raise HTTPException(401, "Missing or invalid X-API-Key header")
 
 
 app = FastAPI(
     title="Care Guide Document Intelligence API",
     version="0.2.0",
     lifespan=lifespan,
-    dependencies=[Depends(require_key)],
+    dependencies=[Depends(require_tenant)],
 )
 
 app.add_middleware(
