@@ -19,22 +19,15 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
 
 from . import semantic, worker
 from .config import get_settings
 from .logging_config import configure_logging
-from .corrections import (
-    CorrectionError,
-    InvoicePatch,
-    apply_corrections,
-    set_issue_resolved,
-)
 from .db import add_event, connect, init_db, now
 from .routers.health import router as health_router
 from .routers.upload import router as upload_router
-from .document_helpers import _invoice_detail
 from .routers.documents import router as documents_router
+from .routers.invoice_review import router as invoice_review_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -89,6 +82,7 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
+app.include_router(invoice_review_router, prefix="/api")
 
 
 # ------------------------------------------------------------------
@@ -222,118 +216,6 @@ def search(
                 ]
 
     return {"results": rows}
-
-
-# ------------------------------------------------------------------
-# Corrections and review
-# ------------------------------------------------------------------
-
-@app.get("/api/invoices/{invoice_id}")
-def get_invoice(invoice_id: int):
-    """Retrieve an active or archived invoice by its ID."""
-    with connect() as db:
-        invoice = db.execute(
-            "SELECT * FROM invoices WHERE id=?",
-            (invoice_id,),
-        ).fetchone()
-
-        if not invoice:
-            raise HTTPException(404, "Invoice not found")
-
-        return _invoice_detail(db, invoice)
-
-
-@app.patch("/api/invoices/{invoice_id}")
-def correct_invoice(
-    invoice_id: int,
-    patch: InvoicePatch,
-):
-    """Correct active invoices with an audit trail."""
-    try:
-        with connect() as db:
-            changes = apply_corrections(
-                db,
-                invoice_id,
-                patch,
-            )
-
-            invoice = db.execute(
-                "SELECT * FROM invoices WHERE id=?",
-                (invoice_id,),
-            ).fetchone()
-
-            output = _invoice_detail(db, invoice)
-
-    except LookupError as error:
-        raise HTTPException(404, str(error))
-
-    except CorrectionError as error:
-        raise HTTPException(422, str(error))
-
-    output["changes_applied"] = changes
-    return output
-
-
-@app.get("/api/invoices/{invoice_id}/corrections")
-def list_corrections(invoice_id: int):
-    """Return the correction history, including archived invoices."""
-    with connect() as db:
-        exists = db.execute(
-            "SELECT 1 FROM invoices WHERE id=?",
-            (invoice_id,),
-        ).fetchone()
-
-        if not exists:
-            raise HTTPException(404, "Invoice not found")
-
-        corrections = db.execute(
-            """
-            SELECT id, field, old_value, new_value,
-                   note, created_at
-            FROM corrections
-            WHERE invoice_id=?
-            ORDER BY id
-            """,
-            (invoice_id,),
-        )
-
-        return {
-            "corrections": [
-                dict(row) for row in corrections
-            ]
-        }
-
-
-class ResolveBody(BaseModel):
-    resolved: bool = True
-
-
-@app.post("/api/issues/{issue_id}/resolve")
-def resolve_issue(
-    issue_id: int,
-    body: ResolveBody | None = None,
-):
-    """Resolve or reopen an issue on an active invoice."""
-    try:
-        with connect() as db:
-            invoice_id = set_issue_resolved(
-                db,
-                issue_id,
-                (body or ResolveBody()).resolved,
-            )
-
-            invoice = db.execute(
-                "SELECT * FROM invoices WHERE id=?",
-                (invoice_id,),
-            ).fetchone()
-
-            return _invoice_detail(db, invoice)
-
-    except LookupError as error:
-        raise HTTPException(404, str(error))
-
-    except CorrectionError as error:
-        raise HTTPException(422, str(error))
 
 
 # ------------------------------------------------------------------
