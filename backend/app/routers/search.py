@@ -1,8 +1,8 @@
-﻿"""Keyword and semantic document search API endpoints."""
+﻿"""Tenant-scoped keyword and semantic document search API endpoints."""
 
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from .. import semantic
 from ..db import connect
@@ -25,6 +25,7 @@ def _fts_query(query: str) -> str | None:
 
 @router.get("/search")
 def search(
+    request: Request,
     q: str | None = None,
     supplier: str | None = None,
     customer: str | None = None,
@@ -35,19 +36,21 @@ def search(
     date_to: str | None = None,
     limit: int = Query(25, le=100),
 ):
-    """Search active-generation text and invoice data."""
+    """Search active-generation text and invoice data within one tenant."""
+    tenant_id = request.state.tenant_id
+
     query = (
         "SELECT d.id AS document_id, d.filename, d.status, "
         "d.review_required, i.id AS invoice_id, i.invoice_number, "
         "i.supplier, i.customer, i.invoice_date, i.total, i.currency "
         "FROM documents d "
         "LEFT JOIN invoices i "
-        "ON i.document_id=d.id "
-        "AND i.generation_id=d.active_generation "
-        "WHERE 1=1"
+        "ON i.document_id = d.id "
+        "AND i.generation_id = d.active_generation "
+        "WHERE d.tenant_id = ?"
     )
 
-    args: list = []
+    args: list = [tenant_id]
     fts = _fts_query(q) if q else None
 
     if q and not fts:
@@ -59,8 +62,8 @@ def search(
                 SELECT 1
                 FROM page_fts
                 WHERE page_fts MATCH ?
-                  AND page_fts.document_id=d.id
-                  AND page_fts.generation_id=d.active_generation
+                  AND page_fts.document_id = d.id
+                  AND page_fts.generation_id = d.active_generation
             )
         """
         args.append(fts)
@@ -74,23 +77,23 @@ def search(
             args.append(f"%{value}%")
 
     if currency:
-        query += " AND i.currency=?"
+        query += " AND i.currency = ?"
         args.append(currency.upper())
 
     if status:
-        query += " AND d.status=?"
+        query += " AND d.status = ?"
         args.append(status)
 
     if review is not None:
-        query += " AND d.review_required=?"
+        query += " AND d.review_required = ?"
         args.append(int(review))
 
     if date_from:
-        query += " AND i.invoice_date>=?"
+        query += " AND i.invoice_date >= ?"
         args.append(date_from)
 
     if date_to:
-        query += " AND i.invoice_date<=?"
+        query += " AND i.invoice_date <= ?"
         args.append(date_to)
 
     query += " ORDER BY d.id DESC LIMIT ?"
@@ -109,15 +112,16 @@ def search(
                     SELECT page_no,
                            snippet(
                                page_fts, 0,
-                               '<mark>', '</mark>', ' â€¦ ', 14
+                               '<mark>', '</mark>', ' … ', 14
                            ) AS snippet
                     FROM page_fts
                     WHERE page_fts MATCH ?
-                      AND document_id=?
-                      AND generation_id=(
+                      AND document_id = ?
+                      AND generation_id = (
                           SELECT active_generation
                           FROM documents
-                          WHERE id=?
+                          WHERE id = ?
+                            AND tenant_id = ?
                       )
                     ORDER BY rank
                     LIMIT 3
@@ -126,6 +130,7 @@ def search(
                         fts,
                         row["document_id"],
                         row["document_id"],
+                        tenant_id,
                     ),
                 ).fetchall()
 
@@ -137,15 +142,18 @@ def search(
 
 
 @router.get("/semantic/status")
-def semantic_status():
-    return semantic.status()
+def semantic_status(request: Request):
+    """Return semantic-index status for the current tenant."""
+    return semantic.status(tenant_id=request.state.tenant_id)
 
 
 @router.post("/semantic/reindex", status_code=202)
-def semantic_reindex():
-    """Start background indexing of active documents."""
+def semantic_reindex(request: Request):
+    """Start semantic indexing for the current tenant's documents."""
     try:
-        started = semantic.start_reindex()
+        started = semantic.start_reindex(
+            tenant_id=request.state.tenant_id,
+        )
 
     except semantic.SemanticDisabled as error:
         raise HTTPException(503, str(error))
@@ -153,11 +161,14 @@ def semantic_reindex():
     if not started:
         raise HTTPException(409, "A reindex is already running")
 
-    return semantic.status()["reindex"]
+    return semantic.status(
+        tenant_id=request.state.tenant_id,
+    )["reindex"]
 
 
 @router.get("/search/semantic")
 def semantic_search(
+    request: Request,
     q: str = Query(..., min_length=1, max_length=500),
     supplier: str | None = None,
     customer: str | None = None,
@@ -170,13 +181,22 @@ def semantic_search(
     ),
     limit: int = Query(10, le=50),
 ):
-    """Search active-generation semantic chunks and invoice data."""
+    """Search semantic chunks and invoice data within one tenant."""
+    tenant_id = request.state.tenant_id
+
     try:
-        hits = (
-            semantic.search(q, limit=100)
-            if mode == "semantic"
-            else semantic.hybrid_search(q, limit=100)
-        )
+        if mode == "semantic":
+            hits = semantic.search(
+                q,
+                limit=100,
+                tenant_id=tenant_id,
+            )
+        else:
+            hits = semantic.hybrid_search(
+                q,
+                limit=100,
+                tenant_id=tenant_id,
+            )
 
     except semantic.SemanticDisabled as error:
         raise HTTPException(503, str(error))
@@ -184,26 +204,39 @@ def semantic_search(
     if not hits:
         return {
             "results": [],
-            "model": semantic.status().get("model"),
+            "model": semantic.status(
+                tenant_id=tenant_id,
+            ).get("model"),
         }
 
-    ids = [hit["document_id"] for hit in hits]
+    ids = list(dict.fromkeys(
+        hit["document_id"] for hit in hits
+    ))
+
+    if not ids:
+        return {
+            "results": [],
+            "model": semantic.status(
+                tenant_id=tenant_id,
+            ).get("model"),
+        }
+
+    placeholders = ",".join("?" for _ in ids)
 
     query = (
         "SELECT d.id, d.filename, d.status, d.review_required "
         "FROM documents d "
-        "WHERE d.id IN (%s)"
-        % ",".join("?" * len(ids))
+        f"WHERE d.tenant_id = ? AND d.id IN ({placeholders})"
     )
 
-    args: list = list(ids)
+    args: list = [tenant_id, *ids]
 
     if status:
-        query += " AND d.status=?"
+        query += " AND d.status = ?"
         args.append(status)
 
     if review is not None:
-        query += " AND d.review_required=?"
+        query += " AND d.review_required = ?"
         args.append(int(review))
 
     for column, value in (
@@ -214,8 +247,8 @@ def semantic_search(
             query += (
                 " AND EXISTS ("
                 "SELECT 1 FROM invoices i "
-                "WHERE i.document_id=d.id "
-                "AND i.generation_id=d.active_generation "
+                "WHERE i.document_id = d.id "
+                "AND i.generation_id = d.active_generation "
                 f"AND i.{column} LIKE ?)"
             )
             args.append(f"%{value}%")
@@ -224,9 +257,9 @@ def semantic_search(
         query += (
             " AND EXISTS ("
             "SELECT 1 FROM invoices i "
-            "WHERE i.document_id=d.id "
-            "AND i.generation_id=d.active_generation "
-            "AND i.currency=?)"
+            "WHERE i.document_id = d.id "
+            "AND i.generation_id = d.active_generation "
+            "AND i.currency = ?)"
         )
         args.append(currency.upper())
 
@@ -241,7 +274,7 @@ def semantic_search(
         for hit in hits:
             document = documents.get(hit["document_id"])
 
-            if not document:
+            if document is None:
                 continue
 
             invoice = db.execute(
@@ -249,16 +282,21 @@ def semantic_search(
                 SELECT invoice_number, supplier, customer,
                        invoice_date, total, currency
                 FROM invoices
-                WHERE document_id=?
-                  AND generation_id=(
+                WHERE document_id = ?
+                  AND generation_id = (
                       SELECT active_generation
                       FROM documents
-                      WHERE id=?
+                      WHERE id = ?
+                        AND tenant_id = ?
                   )
                 ORDER BY seq
                 LIMIT 1
                 """,
-                (document["id"], document["id"]),
+                (
+                    document["id"],
+                    document["id"],
+                    tenant_id,
+                ),
             ).fetchone()
 
             output.append({
@@ -286,5 +324,7 @@ def semantic_search(
 
     return {
         "results": output,
-        "model": semantic.status().get("model"),
+        "model": semantic.status(
+            tenant_id=tenant_id,
+        ).get("model"),
     }

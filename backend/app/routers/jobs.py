@@ -1,6 +1,6 @@
-﻿"""Background job and document reprocessing API endpoints."""
+﻿"""Tenant-scoped background job and document reprocessing endpoints."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from .. import worker
 from ..db import add_event, connect, now
@@ -11,48 +11,52 @@ router = APIRouter()
 
 @router.get("/jobs")
 def list_jobs(
+    request: Request,
     status: str | None = None,
     limit: int = Query(50, le=200),
-    offset: int = 0,
+    offset: int = Query(0, ge=0),
 ):
+    """List jobs belonging only to the current tenant's documents."""
+    tenant_id = request.state.tenant_id
+
     query = (
         "SELECT j.id, j.document_id, d.filename, d.file_type, "
         "j.status, j.attempts, j.max_attempts, j.progress_done, "
         "j.progress_total, j.error, d.error_code, "
         "j.created_at, j.started_at, j.finished_at "
         "FROM jobs j "
-        "JOIN documents d ON d.id=j.document_id "
-        "WHERE 1=1"
+        "JOIN documents d ON d.id = j.document_id "
+        "WHERE d.tenant_id = ?"
     )
 
-    args: list = []
+    args: list = [tenant_id]
 
     if status:
-        query += " AND j.status=?"
+        query += " AND j.status = ?"
         args.append(status)
 
     query += " ORDER BY j.id DESC LIMIT ? OFFSET ?"
+    args.extend([limit, offset])
 
     with connect() as db:
         return {
             "jobs": [
                 dict(row)
-                for row in db.execute(
-                    query,
-                    (*args, limit, offset),
-                )
+                for row in db.execute(query, args)
             ]
         }
 
 
-def _queue_reprocess(db, doc_id: int) -> int:
+def _queue_reprocess(db, doc_id: int, tenant_id: int) -> int:
+    """Queue reprocessing only if the document belongs to this tenant."""
     document = db.execute(
         """
         SELECT id, status, active_generation
         FROM documents
-        WHERE id=?
+        WHERE id = ?
+          AND tenant_id = ?
         """,
-        (doc_id,),
+        (doc_id, tenant_id),
     ).fetchone()
 
     if not document:
@@ -62,7 +66,7 @@ def _queue_reprocess(db, doc_id: int) -> int:
         """
         SELECT id
         FROM jobs
-        WHERE document_id=?
+        WHERE document_id = ?
           AND status IN ('queued', 'running')
         """,
         (doc_id,),
@@ -74,27 +78,26 @@ def _queue_reprocess(db, doc_id: int) -> int:
             f"Document already has an active job ({active_job['id']})",
         )
 
-    # Keep the previous successful status visible during reprocessing.
-    # Only documents without a successful generation become queued.
     db.execute(
         """
         UPDATE documents
-        SET status=CASE
-                WHEN active_generation=0 THEN 'queued'
+        SET status = CASE
+                WHEN active_generation = 0 THEN 'queued'
                 ELSE status
             END,
-            error_code=CASE
-                WHEN active_generation=0 THEN NULL
+            error_code = CASE
+                WHEN active_generation = 0 THEN NULL
                 ELSE error_code
             END,
-            error_message=CASE
-                WHEN active_generation=0 THEN NULL
+            error_message = CASE
+                WHEN active_generation = 0 THEN NULL
                 ELSE error_message
             END,
-            updated_at=?
-        WHERE id=?
+            updated_at = ?
+        WHERE id = ?
+          AND tenant_id = ?
         """,
-        (now(), doc_id),
+        (now(), doc_id, tenant_id),
     )
 
     job_id = worker.enqueue(db, doc_id)
@@ -110,18 +113,26 @@ def _queue_reprocess(db, doc_id: int) -> int:
 
 
 @router.post("/documents/{doc_id}/reprocess", status_code=202)
-def reprocess(doc_id: int):
-    """Reprocess into a new generation while retaining previous results."""
+def reprocess(doc_id: int, request: Request):
+    """Reprocess a document owned by the current tenant."""
+    tenant_id = request.state.tenant_id
+
     with connect() as db:
         return {
             "document_id": doc_id,
-            "job_id": _queue_reprocess(db, doc_id),
+            "job_id": _queue_reprocess(
+                db,
+                doc_id,
+                tenant_id,
+            ),
         }
 
 
 @router.post("/jobs/retry-failed", status_code=202)
-def retry_failed():
-    """Retry documents whose latest processing job failed."""
+def retry_failed(request: Request):
+    """Retry failed jobs only for the current tenant's documents."""
+    tenant_id = request.state.tenant_id
+
     with connect() as db:
         ids = [
             row["document_id"]
@@ -129,14 +140,17 @@ def retry_failed():
                 """
                 SELECT j.document_id
                 FROM jobs j
-                WHERE j.status='failed'
-                  AND j.id=(
+                JOIN documents d ON d.id = j.document_id
+                WHERE d.tenant_id = ?
+                  AND j.status = 'failed'
+                  AND j.id = (
                       SELECT MAX(latest.id)
                       FROM jobs latest
-                      WHERE latest.document_id=j.document_id
+                      WHERE latest.document_id = j.document_id
                   )
                 ORDER BY j.document_id
-                """
+                """,
+                (tenant_id,),
             )
         ]
 
@@ -149,6 +163,7 @@ def retry_failed():
                     "job_id": _queue_reprocess(
                         db,
                         document_id,
+                        tenant_id,
                     ),
                 })
             except HTTPException:

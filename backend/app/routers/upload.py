@@ -1,9 +1,11 @@
-﻿"""Document upload API endpoint."""
+﻿
+"""Tenant-scoped document upload API endpoint."""
 
 import hashlib
+import re
 import uuid
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from .. import worker
 from ..config import get_settings
@@ -16,8 +18,7 @@ router = APIRouter()
 
 
 def _safe_name(name: str) -> str:
-    import re
-
+    """Normalize an uploaded filename."""
     base = re.sub(
         r"[^\w.\- ]",
         "_",
@@ -26,9 +27,27 @@ def _safe_name(name: str) -> str:
     return base[:150] or "upload"
 
 
+def _tenant_id(request: Request) -> int:
+    """Return the authenticated tenant ID."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Tenant authentication required",
+        )
+
+    return tenant_id
+
+
 @router.post("/documents", status_code=202)
-async def upload(files: list[UploadFile] = File(...)):
-    """Accept multiple files; reject invalid files independently."""
+async def upload(
+    request: Request,
+    files: list[UploadFile] = File(...),
+):
+    """Accept multiple files and associate them with the authenticated tenant."""
+    tenant_id = _tenant_id(request)
+
     settings = get_settings()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -97,15 +116,18 @@ async def upload(files: list[UploadFile] = File(...)):
         sha = file_hash.hexdigest()
 
         with connect() as db:
+            # Duplicate detection is restricted to this tenant.
             existing = db.execute(
                 """
                 SELECT id, status
                 FROM documents
-                WHERE sha256=? AND status!='failed'
+                WHERE tenant_id = ?
+                  AND sha256 = ?
+                  AND status != 'failed'
                 ORDER BY id
                 LIMIT 1
                 """,
-                (sha,),
+                (tenant_id, sha),
             ).fetchone()
 
             if existing:
@@ -124,6 +146,7 @@ async def upload(files: list[UploadFile] = File(...)):
             cursor = db.execute(
                 """
                 INSERT INTO documents(
+                    tenant_id,
                     filename,
                     stored_name,
                     sha256,
@@ -134,9 +157,10 @@ async def upload(files: list[UploadFile] = File(...)):
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    tenant_id,
                     name,
                     stored,
                     sha,
