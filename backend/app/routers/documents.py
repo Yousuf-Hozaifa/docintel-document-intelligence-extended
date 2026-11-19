@@ -1,6 +1,7 @@
-﻿"""Document listing, detail, deletion, and original-file API endpoints."""
+﻿
+"""Tenant-scoped document listing, detail, deletion, and original-file API."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from ..db import connect
@@ -14,23 +15,43 @@ from ..document_helpers import (
 router = APIRouter()
 
 
+def _tenant_id(request: Request) -> int:
+    """Return the authenticated tenant ID."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Tenant authentication required",
+        )
+
+    return tenant_id
+
+
 @router.get("/documents")
 def list_documents(
+    request: Request,
     status: str | None = None,
     review: bool | None = None,
     limit: int = Query(50, le=200),
     offset: int = 0,
 ):
-    """List documents with active and archived invoice counts."""
-    query = "SELECT * FROM documents WHERE 1=1"
-    args = []
+    """List only the authenticated tenant's documents."""
+    tenant_id = _tenant_id(request)
+
+    query = """
+        SELECT *
+        FROM documents
+        WHERE tenant_id = ?
+    """
+    args = [tenant_id]
 
     if status:
-        query += " AND status=?"
+        query += " AND status = ?"
         args.append(status)
 
     if review is not None:
-        query += " AND review_required=?"
+        query += " AND review_required = ?"
         args.append(int(review))
 
     query += " ORDER BY id DESC LIMIT ? OFFSET ?"
@@ -51,7 +72,7 @@ def list_documents(
                 SELECT id, status, attempts, progress_done,
                        progress_total, error
                 FROM jobs
-                WHERE document_id=?
+                WHERE document_id = ?
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -64,8 +85,8 @@ def list_documents(
                 """
                 SELECT COUNT(*)
                 FROM invoices
-                WHERE document_id=?
-                  AND generation_id=?
+                WHERE document_id = ?
+                  AND generation_id = ?
                 """,
                 (row["id"], row["active_generation"]),
             ).fetchone()[0]
@@ -74,7 +95,7 @@ def list_documents(
                 """
                 SELECT COUNT(*)
                 FROM invoices
-                WHERE document_id=?
+                WHERE document_id = ?
                   AND generation_id != ?
                 """,
                 (row["id"], row["active_generation"]),
@@ -88,14 +109,22 @@ def list_documents(
 @router.get("/documents/{doc_id}")
 def get_document(
     doc_id: int,
+    request: Request,
     invoice_limit: int = Query(50, ge=1, le=500),
     invoice_offset: int = Query(0, ge=0),
 ):
-    """Return active-generation results and archived invoice counts."""
+    """Return document results only when owned by the authenticated tenant."""
+    tenant_id = _tenant_id(request)
+
     with connect() as db:
         row = db.execute(
-            "SELECT * FROM documents WHERE id=?",
-            (doc_id,),
+            """
+            SELECT *
+            FROM documents
+            WHERE id = ?
+              AND tenant_id = ?
+            """,
+            (doc_id, tenant_id),
         ).fetchone()
 
         if not row:
@@ -108,7 +137,7 @@ def get_document(
             """
             SELECT *
             FROM jobs
-            WHERE document_id=?
+            WHERE document_id = ?
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -122,10 +151,10 @@ def get_document(
             for page in db.execute(
                 """
                 SELECT page_no, label, method, ocr_confidence,
-                       error, substr(text,1,2000) AS text_preview
+                       error, substr(text, 1, 2000) AS text_preview
                 FROM pages
-                WHERE document_id=?
-                  AND generation_id=?
+                WHERE document_id = ?
+                  AND generation_id = ?
                 ORDER BY page_no
                 LIMIT 200
                 """,
@@ -137,8 +166,8 @@ def get_document(
             """
             SELECT COUNT(*)
             FROM invoices
-            WHERE document_id=?
-              AND generation_id=?
+            WHERE document_id = ?
+              AND generation_id = ?
             """,
             (doc_id, active_generation),
         ).fetchone()[0]
@@ -147,7 +176,7 @@ def get_document(
             """
             SELECT COUNT(*)
             FROM invoices
-            WHERE document_id=?
+            WHERE document_id = ?
               AND generation_id != ?
             """,
             (doc_id, active_generation),
@@ -157,8 +186,8 @@ def get_document(
             """
             SELECT *
             FROM invoices
-            WHERE document_id=?
-              AND generation_id=?
+            WHERE document_id = ?
+              AND generation_id = ?
             ORDER BY seq
             LIMIT ? OFFSET ?
             """,
@@ -181,7 +210,7 @@ def get_document(
                 """
                 SELECT ts, event, detail
                 FROM events
-                WHERE document_id=?
+                WHERE document_id = ?
                 ORDER BY id
                 """,
                 (doc_id,),
@@ -192,18 +221,24 @@ def get_document(
 
 
 @router.delete("/documents/{doc_id}")
-def delete_document(doc_id: int):
-    """Permanently delete a document and all its generations and history."""
+def delete_document(
+    doc_id: int,
+    request: Request,
+):
+    """Delete a document only when owned by the authenticated tenant."""
     from ..review import revalidate_related
+
+    tenant_id = _tenant_id(request)
 
     with connect() as db:
         document = db.execute(
             """
             SELECT stored_name, active_generation
             FROM documents
-            WHERE id=?
+            WHERE id = ?
+              AND tenant_id = ?
             """,
-            (doc_id,),
+            (doc_id, tenant_id),
         ).fetchone()
 
         if not document:
@@ -213,7 +248,7 @@ def delete_document(doc_id: int):
             """
             SELECT 1
             FROM jobs
-            WHERE document_id=?
+            WHERE document_id = ?
               AND status IN ('queued', 'running')
             """,
             (doc_id,),
@@ -231,8 +266,8 @@ def delete_document(doc_id: int):
                 """
                 SELECT DISTINCT num_key
                 FROM invoices
-                WHERE document_id=?
-                  AND generation_id=?
+                WHERE document_id = ?
+                  AND generation_id = ?
                 """,
                 (doc_id, document["active_generation"]),
             )
@@ -240,16 +275,25 @@ def delete_document(doc_id: int):
         }
 
         db.execute(
-            "DELETE FROM page_fts WHERE document_id=?",
+            "DELETE FROM page_fts WHERE document_id = ?",
             (doc_id,),
         )
 
         db.execute(
-            "DELETE FROM documents WHERE id=?",
-            (doc_id,),
+            """
+            DELETE FROM documents
+            WHERE id = ?
+              AND tenant_id = ?
+            """,
+            (doc_id, tenant_id),
         )
 
-        revalidate_related(db, keys)
+        # Revalidate only documents belonging to this tenant.
+        revalidate_related(
+            db,
+            keys,
+            tenant_id=tenant_id,
+        )
 
     target = _stored_path(document["stored_name"])
 
@@ -277,16 +321,22 @@ _DOWNLOAD_TYPES = {
 
 
 @router.get("/documents/{doc_id}/file")
-def original_file(doc_id: int):
-    """Serve the uploaded original file for human review."""
+def original_file(
+    doc_id: int,
+    request: Request,
+):
+    """Serve the original file only to its owning tenant."""
+    tenant_id = _tenant_id(request)
+
     with connect() as db:
         document = db.execute(
             """
             SELECT filename, stored_name, file_type
             FROM documents
-            WHERE id=?
+            WHERE id = ?
+              AND tenant_id = ?
             """,
-            (doc_id,),
+            (doc_id, tenant_id),
         ).fetchone()
 
     if not document:

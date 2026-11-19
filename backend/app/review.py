@@ -1,3 +1,4 @@
+
 """Cross-document verification, duplicate detection, issue persistence and re-validation.
 
 Matching: two invoices are "the same invoice" when their normalised invoice numbers match and their
@@ -5,13 +6,18 @@ suppliers do not contradict each other. How a match is treated depends on the fi
   document vs spreadsheet (PDF/image <-> XLSX/XLS/CSV): cross-VERIFICATION. Values compared; a match is
       recorded as info (VAL-XDOC-002), a difference as an error (VAL-XDOC-001).
   document vs document, or spreadsheet vs spreadsheet: DUPLICATE (VAL-DUP-001), plus VAL-XDOC-001 if the
-      two copies disagree on any value."""
+      two copies disagree on any value.
+
+Cross-document matching and revalidation are restricted to the owning tenant.
+"""
+
 import json
 import re
 from decimal import Decimal, InvalidOperation
 
 from .config import get_settings
 from .validate import Issue, needs_review, tolerance, validate_invoice
+
 
 SPREADSHEET_TYPES = {"xlsx", "xls", "csv"}
 MAX_MATCHES = 5
@@ -23,9 +29,17 @@ def norm(s) -> str:
 
 def same_supplier(a, b) -> bool:
     na, nb = norm(a), norm(b)
+
     if not na or not nb:
         return True  # cannot contradict what is missing
-    return na == nb or (min(len(na), len(nb)) >= 4 and (na in nb or nb in na))
+
+    return (
+        na == nb
+        or (
+            min(len(na), len(nb)) >= 4
+            and (na in nb or nb in na)
+        )
+    )
 
 
 def _dec(v):
@@ -39,16 +53,37 @@ def differences(mine: dict, other) -> list[str]:
     out = []
     cur = mine.get("currency") or other["currency"]
     tol = tolerance(cur, get_settings().tolerance_minor_units)
+
     for f in ("subtotal", "tax", "total"):
-        a, b = _dec(mine.get(f)) if mine.get(f) not in (None, "") else None, _dec(other[f]) if other[f] not in (None, "") else None
+        a = (
+            _dec(mine.get(f))
+            if mine.get(f) not in (None, "")
+            else None
+        )
+        b = (
+            _dec(other[f])
+            if other[f] not in (None, "")
+            else None
+        )
+
         if a is not None and b is not None and abs(a - b) > tol:
             out.append(f"{f} {a} vs {b}")
+
     for f in ("currency", "invoice_date"):
         a, b = mine.get(f), other[f]
+
         if a and b and str(a).upper() != str(b).upper():
             out.append(f"{f} {a} vs {b}")
-    if mine.get("customer") and other["customer"] and not same_supplier(mine["customer"], other["customer"]):
-        out.append(f"customer '{mine['customer']}' vs '{other['customer']}'")
+
+    if (
+        mine.get("customer")
+        and other["customer"]
+        and not same_supplier(mine["customer"], other["customer"])
+    ):
+        out.append(
+            f"customer '{mine['customer']}' vs '{other['customer']}'"
+        )
+
     return out
 
 
@@ -58,6 +93,8 @@ def cross_issues(
     doc_type: str | None,
     vals: dict,
 ) -> list[Issue]:
+    """Compare an invoice only with active invoices in its own tenant."""
+
     key = norm(vals.get("invoice_number"))
 
     if not key:
@@ -65,7 +102,11 @@ def cross_issues(
 
     candidate = db.execute(
         """
-        SELECT i.document_id, i.generation_id, d.active_generation
+        SELECT
+            i.document_id,
+            i.generation_id,
+            d.active_generation,
+            d.tenant_id
         FROM invoices i
         JOIN documents d ON d.id = i.document_id
         WHERE i.id = ?
@@ -75,6 +116,8 @@ def cross_issues(
 
     if candidate is None:
         return []
+
+    tenant_id = candidate["tenant_id"]
 
     # During staging validation, do not compare against the
     # previous generation of the same document.
@@ -98,12 +141,13 @@ def cross_issues(
         FROM invoices i
         JOIN documents d ON d.id = i.document_id
         WHERE i.num_key = ?
+          AND d.tenant_id = ?
           {exclusion}
           AND i.generation_id = d.active_generation
         ORDER BY i.id
         LIMIT 50
         """,
-        (key, excluded_id),
+        (key, tenant_id, excluded_id),
     ).fetchall()
 
     issues: list[Issue] = []
@@ -176,18 +220,60 @@ def cross_issues(
 
 def write_issues(db, inv_id: int, issues: list[Issue]) -> bool:
     """Replace an invoice's issues (keeping 'resolved' marks for the same rule+field); returns needs_review."""
-    resolved = {(r["rule_id"], r["field"]) for r in db.execute(
-        "SELECT rule_id, field FROM validation_issues WHERE invoice_id=? AND resolved=1", (inv_id,))}
-    db.execute("DELETE FROM validation_issues WHERE invoice_id=?", (inv_id,))
+
+    resolved = {
+        (r["rule_id"], r["field"])
+        for r in db.execute(
+            """
+            SELECT rule_id, field
+            FROM validation_issues
+            WHERE invoice_id = ?
+              AND resolved = 1
+            """,
+            (inv_id,),
+        )
+    }
+
+    db.execute(
+        "DELETE FROM validation_issues WHERE invoice_id = ?",
+        (inv_id,),
+    )
+
     open_issues = []
-    for i in issues:
-        res = int((i.rule_id, i.field) in resolved and i.severity != "info")
-        db.execute("INSERT INTO validation_issues(invoice_id,rule_id,severity,field,message,resolved) VALUES (?,?,?,?,?,?)",
-                   (inv_id, i.rule_id, i.severity, i.field, i.message, res))
+
+    for issue in issues:
+        res = int(
+            (issue.rule_id, issue.field) in resolved
+            and issue.severity != "info"
+        )
+
+        db.execute(
+            """
+            INSERT INTO validation_issues(
+                invoice_id, rule_id, severity, field, message, resolved
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                inv_id,
+                issue.rule_id,
+                issue.severity,
+                issue.field,
+                issue.message,
+                res,
+            ),
+        )
+
         if not res:
-            open_issues.append(i)
+            open_issues.append(issue)
+
     review = needs_review(open_issues)
-    db.execute("UPDATE invoices SET needs_review=? WHERE id=?", (int(review), inv_id))
+
+    db.execute(
+        "UPDATE invoices SET needs_review = ? WHERE id = ?",
+        (int(review), inv_id),
+    )
+
     return review
 
 
@@ -207,7 +293,7 @@ def refresh_document_review(db, doc_id: int) -> None:
     ).fetchone()[0]
 
     db.execute(
-        "UPDATE documents SET review_required=? WHERE id=?",
+        "UPDATE documents SET review_required = ? WHERE id = ?",
         (flag, doc_id),
     )
 
@@ -222,13 +308,28 @@ def load_invoice_inputs(db, inv_id: int):
         """,
         (inv_id,),
     ).fetchone()
-    items = [dict(r) for r in db.execute(
-        "SELECT idx, description, quantity, unit_price, amount, ocr_conf FROM line_items WHERE invoice_id=? ORDER BY idx", (inv_id,))]
+
+    if inv is None:
+        return None, None, []
+
+    items = [
+        dict(r)
+        for r in db.execute(
+            """
+            SELECT idx, description, quantity, unit_price, amount, ocr_conf
+            FROM line_items
+            WHERE invoice_id = ?
+            ORDER BY idx
+            """,
+            (inv_id,),
+        )
+    ]
+
     return inv, json.loads(inv["fields_json"]), items
 
 
 def revalidate_invoice(db, inv_id: int) -> None:
-    inv, F, items = load_invoice_inputs(db, inv_id)
+    inv, fields, items = load_invoice_inputs(db, inv_id)
 
     if inv is None:
         return
@@ -236,14 +337,23 @@ def revalidate_invoice(db, inv_id: int) -> None:
     if inv["generation_id"] != inv["active_generation"]:
         return
 
-    vals = {k: (v or {}).get("value") for k, v in F.items()}
+    vals = {
+        key: (value or {}).get("value")
+        for key, value in fields.items()
+    }
+
     issues = (
         validate_invoice(
-            F,
+            fields,
             items,
             expect_line_items=not inv["extractor"].endswith("-register"),
         )
-        + cross_issues(db, inv_id, inv["file_type"], vals)
+        + cross_issues(
+            db,
+            inv_id,
+            inv["file_type"],
+            vals,
+        )
     )
 
     write_issues(db, inv_id, issues)
@@ -254,29 +364,51 @@ def revalidate_related(
     db,
     keys: set[str],
     exclude_document: int | None = None,
+    tenant_id: int | None = None,
 ) -> int:
-    """Revalidate active invoices in other documents sharing invoice numbers."""
+    """Revalidate active invoices sharing invoice numbers within one tenant."""
+
+    # Infer tenant ownership from the source document when possible.
+    if tenant_id is None and exclude_document is not None:
+        source = db.execute(
+            """
+            SELECT tenant_id
+            FROM documents
+            WHERE id = ?
+            """,
+            (exclude_document,),
+        ).fetchone()
+
+        if source is not None:
+            tenant_id = source["tenant_id"]
+
+    # Never run a cross-document revalidation without a tenant scope.
+    if tenant_id is None:
+        return 0
+
     ids = set()
 
-    for k in keys:
-        if not k:
+    for key in keys:
+        if not key:
             continue
 
-        q = """
+        query = """
             SELECT i.id
             FROM invoices i
             JOIN documents d ON d.id = i.document_id
             WHERE i.num_key = ?
+              AND d.tenant_id = ?
               AND i.generation_id = d.active_generation
         """
-        args = [k]
+        args = [key, tenant_id]
 
         if exclude_document is not None:
-            q += " AND i.document_id != ?"
+            query += " AND i.document_id != ?"
             args.append(exclude_document)
 
         ids.update(
-            r["id"] for r in db.execute(q, args)
+            row["id"]
+            for row in db.execute(query, args)
         )
 
     for invoice_id in ids:
