@@ -91,11 +91,15 @@ def require_tenant(request: Request) -> int | None:
     """
     # Public health endpoint and CORS preflight.
     if (
-        request.url.path == "/api/health"
+        request.url.path in {"/api/health", "/api/auth/register", "/api/auth/login"}
         or request.method == "OPTIONS"
     ):
         request.state.tenant_id = None
         return None
+
+    if request.headers.get("Authorization", "").startswith("Bearer "):
+        from .user_auth import authenticate_bearer
+        return authenticate_bearer(request)
 
     api_key = request.headers.get("X-API-Key", "").strip()
 
