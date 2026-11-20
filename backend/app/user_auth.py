@@ -88,13 +88,18 @@ def bootstrap_admin() -> None:
             if existing["role"] != "admin":
                 raise RuntimeError("Configured bootstrap email already belongs to a non-admin account")
             return
-        tenant_slug = "user-" + secrets.token_hex(12)
-        tenant = db.execute(
-            "INSERT INTO tenants(slug,name,created_at) VALUES(?,?,?)",
-            (tenant_slug, "DocIntel Administrator", now()),
-        )
+        # Keep the existing owner workspace and documents under the admin account.
+        tenant = db.execute("SELECT id FROM tenants WHERE slug='legacy'").fetchone()
+        if tenant is None:
+            tenant = db.execute(
+                "INSERT INTO tenants(slug,name,created_at) VALUES(?,?,?)",
+                ("user-" + secrets.token_hex(12), "DocIntel Administrator", now()),
+            )
+            tenant_id = tenant.lastrowid
+        else:
+            tenant_id = tenant["id"]
         db.execute(
             """INSERT INTO users(tenant_id,email,password_hash,role,is_active,created_at,updated_at)
                VALUES(?,?,?,'admin',1,?,?)""",
-            (tenant.lastrowid, normalized, hash_password(password), now(), now()),
+            (tenant_id, normalized, hash_password(password), now(), now()),
         )
