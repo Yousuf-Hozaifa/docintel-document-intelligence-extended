@@ -1,5 +1,11 @@
 
 const KEY = "docintel_api_key";
+const TOKEN = "docintel_session_token";
+
+export const authToken = {
+  get: () => sessionStorage.getItem(TOKEN) || "",
+  set: (value) => value ? sessionStorage.setItem(TOKEN, value) : sessionStorage.removeItem(TOKEN),
+};
 
 // Empty in local development; set VITE_API_BASE_URL for deployment.
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
@@ -18,7 +24,8 @@ export class ApiError extends Error {
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
-  if (apiKey.get()) headers["X-API-Key"] = apiKey.get();
+  if (authToken.get()) headers.Authorization = "Bearer " + authToken.get();
+  else if (apiKey.get()) headers["X-API-Key"] = apiKey.get();
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -49,6 +56,13 @@ const json = (method, body) => ({
 
 export const api = {
   health: () => request("/api/health"),
+  register: (credentials) => request("/api/auth/register", json("POST", credentials)),
+  login: (credentials) => request("/api/auth/login", json("POST", credentials)),
+  me: () => request("/api/auth/me"),
+  logout: () => request("/api/auth/logout", json("POST")),
+  adminOverview: () => request("/api/admin/overview"),
+  adminUsers: (params = {}) => request("/api/admin/users?" + new URLSearchParams(params)),
+  setUserActive: (id, is_active) => request("/api/admin/users/" + id, json("PATCH", { is_active })),
   listDocuments: () => request("/api/documents?limit=200"),
   getDocument: (id, limit = 25) =>
     request(`/api/documents/${id}?invoice_limit=${limit}`),
@@ -84,9 +98,9 @@ export function safeSnippet(s = "") {
 
 // Fetch and open/download the original uploaded file.
 export async function openOriginal(id, filename) {
-  const headers = apiKey.get()
-    ? { "X-API-Key": apiKey.get() }
-    : {};
+  const headers = authToken.get()
+    ? { Authorization: "Bearer " + authToken.get() }
+    : apiKey.get() ? { "X-API-Key": apiKey.get() } : {};
 
   const res = await fetch(
     `${API_BASE_URL}/api/documents/${id}/file`,
