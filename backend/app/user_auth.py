@@ -55,7 +55,7 @@ def authenticate_bearer(request: Request) -> int | None:
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     with connect() as db:
         row = db.execute("""
-            SELECT u.id, u.tenant_id, u.role, u.is_active
+            SELECT u.id, u.tenant_id, u.email, u.role, u.is_active
             FROM auth_sessions s JOIN users u ON u.id=s.user_id
             WHERE s.token_hash=? AND s.revoked_at IS NULL
               AND s.expires_at > ? 
@@ -63,6 +63,7 @@ def authenticate_bearer(request: Request) -> int | None:
     if row is None or not row["is_active"]:
         raise HTTPException(401, "Session expired or account disabled")
     request.state.user_id = row["id"]
+    request.state.user_email = row["email"]
     request.state.user_role = row["role"]
     request.state.tenant_id = row["tenant_id"]
     return row["tenant_id"]
