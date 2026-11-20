@@ -32,7 +32,7 @@ def test_migrations_run_once():
             "SELECT version, name FROM schema_migrations ORDER BY version"
         ).fetchall()
 
-        assert len(first) == 2
+        assert len(first) == 3
         assert [tuple(row) for row in first] == [
             tuple(row) for row in second
         ]
@@ -84,7 +84,7 @@ def test_migration_preserves_existing_invoice_data():
             "SELECT COUNT(*) FROM schema_migrations"
         ).fetchone()[0]
 
-        assert applied == 2
+        assert applied == 3
 
         document = conn.execute(
             "SELECT tenant_id FROM documents WHERE id=1"
