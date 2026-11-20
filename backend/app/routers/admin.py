@@ -31,7 +31,7 @@ def list_users(limit: int = 100, offset: int = 0):
     return {"users": [dict(row) for row in rows]}
 
 @router.patch("/admin/users/{user_id}")
-def update_user(user_id: int, body: ActiveUpdate, request=None):
+def update_user(user_id: int, body: ActiveUpdate):
     with connect() as db:
         target = db.execute("SELECT id,role FROM users WHERE id=?", (user_id,)).fetchone()
         if target is None:
