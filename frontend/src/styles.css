@@ -81,3 +81,24 @@ td input { width: 100%; padding: .3rem .4rem; border: 1px solid var(--line); bor
 .lowocr { color: var(--bad); font-weight: 600; }
 
 button.danger { border-color: var(--bad); color: var(--bad); }
+
+/* Account and administrator workspace */
+.auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }
+.auth-card { width: min(100%, 26rem); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 2rem; box-shadow: 0 12px 36px rgba(20,30,45,.08); }
+.auth-card h1 { margin: 0 0 .35rem; }
+.auth-card > p { color: var(--muted); margin: 0 0 1.5rem; }
+.auth-card label { display: grid; gap: .35rem; margin: 1rem 0; font-weight: 600; }
+.auth-card input { width: 100%; padding: .7rem; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.auth-card small { color: var(--muted); }
+.auth-switch { margin: 1.25rem 0 0 !important; font-size: .9rem; }
+.auth-loading { padding: 2rem; text-align: center; }
+.account-label { color: var(--muted); font-size: .85rem; align-self: center; overflow-wrap: anywhere; }
+.admin-panel { margin: 1.25rem 1.5rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.admin-panel h2 { margin: 0 0 1rem; font-size: 1.1rem; }
+.admin-panel h3 { margin: 1.2rem 0 .5rem; font-size: 1rem; }
+.admin-stats { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .75rem; }
+.admin-stats div { display: grid; gap: .2rem; padding: .8rem; background: var(--paper); border-radius: 6px; }
+.admin-stats strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.admin-stats span { color: var(--muted); font-size: .8rem; }
+.table-scroll { overflow-x: auto; }
+@media (max-width: 800px) { .admin-stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .account-label { align-self: flex-start; } }
