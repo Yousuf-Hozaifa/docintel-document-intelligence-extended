@@ -130,3 +130,7 @@ Script for the recorded walkthrough: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 ## Repository layout
 `backend/app` (service) · `backend/tests` · `backend/synth` (synthetic invoice generators) · `frontend/` (React + Vite) · `eval/` (dataset, evaluation, benchmarks) · `scripts/` (demo data, docs generators) · `docs/` (architecture, database, security, evaluation, benchmarks, demo, screenshots) · `PROGRESS.md` · `AI_PROMPTS.md`.
+
+## Production persistence and backup
+
+For durable deployments, configure `DOCINTEL_DATA_DIR` on persistent storage rather than an ephemeral container filesystem. DocIntel also provides an offline backup and restore utility (`python -m app.backup`) that creates a consistent SQLite snapshot, copies uploaded files, and verifies SHA-256 checksums via a manifest. See `docs/BACKUP_RESTORE.md` for operating requirements, restore steps, and production limitations.
