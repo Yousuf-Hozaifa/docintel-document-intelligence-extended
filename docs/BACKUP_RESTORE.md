@@ -23,7 +23,7 @@ Stop the DocIntel backend and worker before creating or restoring backups. Do no
 The utility does not currently provide:
 - Automatic or scheduled backups.
 - Off-site backup storage.
-- Backup encryption.
+- Automatic cloud-provider backup configuration.
 - Cloud-provider backup configuration.
 - Automated disaster recovery.
 
@@ -82,3 +82,32 @@ Before production deployment, establish:
 For a single-instance Render deployment using SQLite, configure `DOCINTEL_DATA_DIR` on a persistent disk. A persistent disk does not replace independent off-site backups.
 
 This utility is an offline backup and restore mechanism, not a complete production disaster-recovery solution.
+
+
+## Encrypted off-site copies
+
+The optional `python -m app.backup_encryption` utility encrypts a verified offline
+backup into a versioned AES-256-GCM container. A password-derived key is created
+with scrypt. The password is prompted interactively and is not stored in the
+backup or command-line arguments. Losing the password makes the encrypted copy
+unrecoverable; keep it in a separate secure password manager or offline record.
+
+Create an encrypted copy (the backup directory must already have been created
+and verified with `python -m app.backup`):
+
+```powershell
+python -m app.backup_encryption encrypt --backup "F:\DocIntelBackups\plain-2026-11-26" --destination "F:\DocIntelBackups\drive-staging\docintel-2026-11-26.dcbak" --quota-dir "F:\DocIntelBackups\drive-staging" --limit-gb 8.5
+```
+
+Decrypt and verify into a new destination:
+
+```powershell
+python -m app.backup_encryption decrypt --encrypted "F:\DocIntelBackups\drive-staging\docintel-2026-11-26.dcbak" --destination "F:\DocIntelBackups\restore-test"
+```
+
+The quota check counts `.dcbak` files in the configured staging folder and
+refuses an operation that would exceed 8.5 GiB. This is a local application
+limit, not a Google Drive quota guarantee. Google Drive account usage must be
+checked separately before manual upload. No cloud credentials or automatic
+uploads are configured. Test with synthetic data before using real backups.
+
