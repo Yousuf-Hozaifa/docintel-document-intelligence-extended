@@ -13,6 +13,7 @@ from .db import add_event, connect, now
 from .document_helpers import _stored_path
 from .errors import CorruptFile, DocumentError, NoContent
 from .extract import FIELDS, extract_invoice, extract_register, segment_pages
+from .llm import LLMUnavailable, enrich_invoice
 from .readers import detect_type, open_pages
 from .semantic import embed_after_processing
 from .review import (
@@ -304,6 +305,27 @@ def process_document(
 
         for segment in segment_pages(seg_input) if seg_input else []:
             result = extract_invoice(segment)
+            segment_text = "\n".join(page[1] for page in segment)
+            try:
+                enriched = enrich_invoice(result, segment_text)
+                if enriched:
+                    with connect() as db:
+                        add_event(
+                            db,
+                            doc_id,
+                            "llm_enrichment",
+                            f"generation={generation_id} page_start={segment[0][0]} "
+                            f"page_end={segment[-1][0]} provider=gemini",
+                        )
+            except LLMUnavailable as error:
+                # Optional AI must never prevent the deterministic pipeline.
+                with connect() as db:
+                    add_event(
+                        db,
+                        doc_id,
+                        "llm_enrichment_unavailable",
+                        f"generation={generation_id} reason={str(error)[:180]}",
+                    )
             result["page_start"] = segment[0][0]
             result["page_end"] = segment[-1][0]
             results.append(result)
