@@ -5,7 +5,6 @@ from fastapi import APIRouter
 from ..readers import ocr_status
 from ..validate import RULES
 from ..llm import llm_status
-from ..google_sheets import google_sheets_status
 
 
 router = APIRouter()
@@ -24,7 +23,6 @@ def health():
             "hint": status["hint"],
         },
         "llm": llm_status(),
-        "google_sheets": google_sheets_status(),
     }
 
 
