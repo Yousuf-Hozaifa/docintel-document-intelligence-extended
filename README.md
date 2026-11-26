@@ -34,6 +34,8 @@ The current Render free-tier deployment is intended for assessment/demo use. The
 - **Extraction:** invoice number, date, supplier, customer, subtotal, tax, total, currency, and line items. The deterministic baseline leaves missing or ambiguous values empty. Optional Gemini enrichment can suggest missing values; suggestions are labelled for human verification and cannot overwrite deterministic values. AI confidence is a review heuristic, not a calibrated probability.
 - **Validation** (stable rule IDs, `Decimal`, per-currency precision, configurable tolerance): required/invalid fields, dates, currencies, subtotal+tax=total, line arithmetic, duplicates, low OCR confidence, PDF↔PDF and PDF↔Excel cross-verification. Catalogue: `GET /api/rules`.
 - **Review and outputs:** inline corrections with audit trail and automatic re-validation, open the immutable original, download a generated corrected-data PDF summary or corrected Excel, and export the active invoice register to CSV/XLSX.
+- **Business automation:** accounts-payable dashboard, automatically populated supplier directory, invoice approval/rejection, sample purchase-order matching, and reusable Smart Data Mapping templates.
+- **Google Sheets:** optional service-account integration that appends invoice data to a spreadsheet when credentials and sharing permissions are configured; setup: `docs/GOOGLE_SHEETS_SETUP.md`.
 - **Search:** keyword (SQLite FTS5 + filters); optional meaning-based hybrid search.
 - **Background processing:** DB-backed worker with progress, retry/backoff, atomic job claim, restart recovery, duplicate-upload protection; page-streaming so memory does not grow with page count.
 
