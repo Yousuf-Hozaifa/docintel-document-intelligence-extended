@@ -99,7 +99,7 @@ def test_corrected_downloads_preserve_original_upload(client, tmp_path, spec):
 
 def test_google_sheets_export_is_explicitly_unavailable_without_credentials(client, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_JSON", raising=False)
-    monkeypatch.delenv("GOOGLE_SHEETS_SPREADSHEET_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_SHEETS_SPREADSHEET_MAP", raising=False)
     response = client.post("/api/exports/google-sheets")
     assert response.status_code == 503
     assert "not configured" in response.json()["detail"]
@@ -121,7 +121,14 @@ def test_llm_assisted_invoice_always_requires_human_review(client, tmp_path, spe
     document, invoice = _upload_and_process(client, tmp_path, spec)
 
     assert invoice["needs_review"]
-    ai_issue = next(issue for issue in invoice["issues"] if issue["rule_id"] == "AI-REVIEW-001")
+    correction = client.patch(
+        f"/api/invoices/{invoice['id']}",
+        json={"fields": {"total": "999.99"}, "note": "Synthetic correction while AI review is pending"},
+    )
+    assert correction.status_code == 200
+    refreshed = client.get(f"/api/documents/{document['id']}").json()
+    current_invoice = refreshed["invoices"][0]
+    ai_issue = next(issue for issue in current_invoice["issues"] if issue["rule_id"] == "AI-REVIEW-001")
     blocked = client.post(
         f"/api/invoices/{invoice['id']}/approval",
         json={"status": "approved"},
