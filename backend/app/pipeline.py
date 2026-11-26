@@ -315,8 +315,14 @@ def process_document(
                             db,
                             doc_id,
                             "llm_enrichment",
-                            f"generation={generation_id} page_start={segment[0][0]} "
-                            f"page_end={segment[-1][0]} provider=gemini",
+                            (
+                                f"generation={generation_id} page_start={segment[0][0]} "
+                                f"page_end={segment[-1][0]} "
+                                f"provider=gemini model={result.get('_llm_metadata', {}).get('model')} "
+                                f"prompt={result.get('_llm_metadata', {}).get('prompt_version')} "
+                                f"latency_ms={result.get('_llm_metadata', {}).get('latency_ms', 0)} "
+                                f"tokens={result.get('_llm_metadata', {}).get('total_tokens', 0)}"
+                            ),
                         )
             except LLMUnavailable as error:
                 # Optional AI must never prevent the deterministic pipeline.
