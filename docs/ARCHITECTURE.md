@@ -2,6 +2,8 @@
 
 ![Architecture](diagrams/architecture.png)
 
+**Investor-demo architecture:** [Mermaid source](diagrams/investor-demo-architecture.mmd). **Investor walkthrough:** [INVESTOR_DEMO_SCRIPT.md](INVESTOR_DEMO_SCRIPT.md).
+
 _Diagram sources: `docs/diagrams/*.mmd` (Mermaid); rendered by `scripts/render_diagrams.py`. Database schema and ERD: [DATABASE.md](DATABASE.md). API contract: [openapi.json](openapi.json) (also served at `/docs`)._
 
 ## 1. What it is
