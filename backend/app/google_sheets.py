@@ -6,6 +6,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 from typing import Any
 
 
@@ -73,17 +74,29 @@ def append_rows(values: list[list[Any]]) -> dict[str, Any]:
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=25) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        raise GoogleSheetsUnavailable(
-            f"Google Sheets API returned HTTP {error.code}"
-        ) from error
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
-        raise GoogleSheetsUnavailable(
-            f"Google Sheets request failed: {type(error).__name__}"
-        ) from error
+    result = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as error:
+            if error.code in (429, 500, 502, 503, 504) and attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            raise GoogleSheetsUnavailable(
+                f"Google Sheets API returned HTTP {error.code}"
+            ) from error
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            raise GoogleSheetsUnavailable(
+                f"Google Sheets request failed: {type(error).__name__}"
+            ) from error
+
+    if result is None:
+        raise GoogleSheetsUnavailable("Google Sheets request did not return a response")
 
     updates = result.get("updates", {})
     return {
