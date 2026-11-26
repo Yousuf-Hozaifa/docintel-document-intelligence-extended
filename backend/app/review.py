@@ -355,6 +355,15 @@ def revalidate_invoice(db, inv_id: int) -> None:
             vals,
         )
     )
+    if inv["extractor"].endswith("+gemini"):
+        issues.append(
+            Issue(
+                "AI-REVIEW-001",
+                "warning",
+                None,
+                "AI-assisted values or line items were added. Verify every suggestion against the original document before approval.",
+            )
+        )
 
     write_issues(db, inv_id, issues)
     refresh_document_review(db, inv["document_id"])
