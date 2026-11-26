@@ -86,7 +86,11 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
     )
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0,
+            "maxOutputTokens": 2048,
+        },
     }
     request = urllib.request.Request(
         url,
@@ -102,7 +106,7 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
         with urllib.request.urlopen(request, timeout=25) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
-        # Never include the request URL because it contains the API key.
+        # Never include the credential in provider errors or audit details.
         raise LLMUnavailable(f"Gemini API returned HTTP {error.code}") from error
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
         raise LLMUnavailable(f"Gemini request failed: {type(error).__name__}") from error
