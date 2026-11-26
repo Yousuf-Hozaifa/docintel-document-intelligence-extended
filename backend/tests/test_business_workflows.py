@@ -120,5 +120,5 @@ def test_llm_assisted_invoice_always_requires_human_review(client, tmp_path, spe
     monkeypatch.setattr(pipeline, "enrich_invoice", fake_enrichment)
     document, invoice = _upload_and_process(client, tmp_path, spec)
 
-    assert invoice["needs_review"] is True
+    assert invoice["needs_review"]
     assert any(issue["rule_id"] == "AI-REVIEW-001" for issue in invoice["issues"])
