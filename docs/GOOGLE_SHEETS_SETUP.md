@@ -7,7 +7,7 @@ DocIntel can append the active tenant's invoice register to a spreadsheet throug
 2. Enable the Google Sheets API.
 3. Create a service account and generate a JSON key for the demo.
 4. Open the destination spreadsheet and share it with the service-account email address as an Editor.
-5. Copy the spreadsheet ID from its URL.
+5. Copy each spreadsheet ID from its URL. Get tenant IDs from the application database (`SELECT id, name FROM tenants`).
 
 Google documents service accounts as suitable for application-owned data and specific shared documents. The service account must be granted access to the individual spreadsheet. See [Google service-account authentication](https://developers.google.com/identity/protocols/oauth2/service-account) and [credential setup](https://developers.google.com/workspace/guides/create-credentials).
 
@@ -15,12 +15,12 @@ Google documents service accounts as suitable for application-owned data and spe
 Set these only on the backend service or local backend process:
 
 - `GOOGLE_SERVICE_ACCOUNT_JSON`: the complete service-account JSON credential, stored as a private secret.
-- `GOOGLE_SHEETS_SPREADSHEET_ID`: the destination spreadsheet ID.
+- `GOOGLE_SHEETS_SPREADSHEET_MAP`: a JSON object mapping each tenant ID to that tenant's spreadsheet ID, for example `{"1":"spreadsheet_id_for_tenant_1"}`.
 - `GOOGLE_SHEETS_RANGE`: optional A1 range, default `Invoices!A1`.
 
 Never put the credential in frontend variables, source control, screenshots, or client-side storage. The service account key is a powerful secret; restrict spreadsheet sharing and rotate/revoke the key if exposed.
 
-After configuration, `GET /api/health` reports `google_sheets.configured=true`. This checks configuration presence, not live access. The export action verifies actual authorization and writes rows.
+After configuration, `GET /api/business/google-sheets/status` reports `configured=true` for the authenticated tenant. This checks configuration presence, not live access. The export action verifies actual authorization and writes rows.
 
 ## Export behavior
 - The default export appends invoice register columns and serialized line-item detail.
