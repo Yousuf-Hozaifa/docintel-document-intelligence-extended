@@ -67,7 +67,7 @@ On Linux/macOS use `source .venv/bin/activate` and `export` instead of `$env:`.
 | `GEMINI_API_KEY` | unset | private backend-only Gemini API key; never expose in frontend or commit |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | free-tier Gemini model default; confirm current availability before use |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | unset | private backend-only Google service-account JSON credential |
-| `GOOGLE_SHEETS_SPREADSHEET_ID` | unset | destination spreadsheet ID; share it with the service account |
+| `GOOGLE_SHEETS_SPREADSHEET_MAP` | unset | JSON mapping of tenant IDs to their own spreadsheet IDs; share each sheet with the service account |
 | `GOOGLE_SHEETS_RANGE` | `Invoices!A1` | destination A1 range for appended rows |
 | `DOCINTEL_API_KEY` | unset (open) | if set, every endpoint except `/api/health` requires header `X-API-Key` |
 | `DOCINTEL_CORS_ORIGINS` | Vite dev origins | comma-separated allowed origins |
