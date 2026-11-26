@@ -150,7 +150,7 @@ Script for the recorded walkthrough: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 - Windows benchmark commands: `docs/benchmarks/WINDOWS_RUNBOOK.md`.
 
 ## Known limitations
-- Evaluation data are synthetic; real-world accuracy is unknown and likely lower on unseen layouts, wrapped tables, discounts/shipping lines, tax-inclusive totals and noisy scans. No LLM extraction.
+- Evaluation data are synthetic; real-world accuracy is unknown and likely lower on unseen layouts, wrapped tables, discounts/shipping lines, tax-inclusive totals and noisy scans. Optional Gemini enrichment is disabled by default and has not been enabled on the public demo deployment.
 - Confidence scores are heuristic, not calibrated probabilities; 33–88% of extraction errors were flagged for review in the evaluation (depending on split/rule), the rest passed silently.
 - The latest isolated-worktree backend test run is 238 passed / 3 skipped (0 failed; 2 warnings); benchmark figures in `docs/benchmarks/WINDOWS_REPORTED.md` are machine-specific and should not be interpreted as hosted Render performance. Multi-core scaling is unmeasured.
 - Single-tenant: one optional shared API key, no users/roles, no TLS or encryption at rest, parsers are not sandboxed (see docs/SECURITY.md).
