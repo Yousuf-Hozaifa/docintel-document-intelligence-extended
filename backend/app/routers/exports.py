@@ -224,7 +224,7 @@ def export_google_sheets(request: Request, mapping_id: int | None = None):
                 + [
                     record["validation_status"],
                     "Yes" if record["needs_review"] else "No",
-                    record["filename"],
+                    _safe_cell(record["filename"], "filename"),
                     record["correction_count"],
                     json.dumps([{**item, "description": _safe_cell(item.get("description"), "description")} for item in record["line_items"]], ensure_ascii=False),
                 ]
