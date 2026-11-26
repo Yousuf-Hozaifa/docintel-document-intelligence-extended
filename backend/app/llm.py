@@ -98,12 +98,12 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(request, timeout=25) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    latency_ms = round((time.perf_counter() - started) * 1000)
     except urllib.error.HTTPError as error:
         # Never include the request URL because it contains the API key.
         raise LLMUnavailable(f"Gemini API returned HTTP {error.code}") from error
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
         raise LLMUnavailable(f"Gemini request failed: {type(error).__name__}") from error
+    latency_ms = round((time.perf_counter() - started) * 1000)
 
     try:
         response_text = payload["candidates"][0]["content"]["parts"][0]["text"]
