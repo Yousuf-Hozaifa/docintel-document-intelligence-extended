@@ -280,13 +280,14 @@ def update_approval(invoice_id: int, body: ApprovalBody, request: Request):
         if body.status == "approved":
             blockers = db.execute(
                 """SELECT COUNT(*) FROM validation_issues
-                   WHERE invoice_id=? AND severity='error' AND resolved=0""",
+                   WHERE invoice_id=? AND resolved=0
+                     AND (severity='error' OR rule_id='AI-REVIEW-001')""",
                 (invoice_id,),
             ).fetchone()[0]
             if blockers:
                 raise HTTPException(
                     409,
-                    f"Resolve {blockers} blocking validation error(s) before approval",
+                    f"Resolve {blockers} blocking validation/AI review issue(s) before approval",
                 )
         db.execute(
             """INSERT INTO invoice_approvals(
