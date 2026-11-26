@@ -18,6 +18,7 @@ logger = logging.getLogger("docintel.worker")
 
 _stop = threading.Event()
 _threads: list[threading.Thread] = []
+_lifecycle_lock = threading.Lock()
 
 
 def enqueue(db, document_id: int) -> int:
@@ -335,26 +336,64 @@ def _loop() -> None:
 
 
 def start() -> None:
-    settings = get_settings()
+    """Start one worker group; never overlap it with an existing group."""
+    with _lifecycle_lock:
+        live_threads = [thread for thread in _threads if thread.is_alive()]
+        _threads[:] = live_threads
 
-    _stop.clear()
-    recover_stuck()
+        if live_threads:
+            names = ", ".join(thread.name for thread in live_threads)
+            raise RuntimeError(
+                f"Cannot start workers while previous threads are alive: {names}"
+            )
 
-    for index in range(settings.workers):
-        thread = threading.Thread(
-            target=_loop,
-            name=f"worker-{index}",
-            daemon=True,
-        )
+        _threads.clear()
+        settings = get_settings()
+        recover_stuck()
+        _stop.clear()
 
-        thread.start()
-        _threads.append(thread)
+        for index in range(settings.workers):
+            thread = threading.Thread(
+                target=_loop,
+                name=f"worker-{index}",
+                daemon=True,
+            )
+            thread.start()
+            _threads.append(thread)
 
 
-def stop() -> None:
-    _stop.set()
+def stop(timeout: float | None = None) -> None:
+    """Signal workers and wait up to one shared shutdown deadline.
 
-    for thread in _threads:
-        thread.join(timeout=5)
+    Live thread references are retained on timeout so a later stop() can
+    continue waiting. A timeout means shutdown is not complete.
+    """
+    if timeout is None:
+        timeout = float(get_settings().ocr_timeout_s) + 30.0
 
-    _threads.clear()
+    if timeout < 0:
+        raise ValueError("Worker shutdown timeout must be non-negative")
+
+    deadline = time.monotonic() + timeout
+
+    with _lifecycle_lock:
+        _stop.set()
+
+        for thread in list(_threads):
+            remaining = max(0.0, deadline - time.monotonic())
+            thread.join(timeout=remaining)
+
+        alive = [thread for thread in _threads if thread.is_alive()]
+        _threads[:] = alive
+
+        if alive:
+            names = ", ".join(thread.name for thread in alive)
+            logger.error(
+                "Worker shutdown timed out; threads are still running: %s",
+                names,
+            )
+            raise TimeoutError(
+                f"Worker shutdown timed out; still running: {names}"
+            )
+
+        _threads.clear()

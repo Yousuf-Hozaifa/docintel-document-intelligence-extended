@@ -39,9 +39,11 @@ async def lifespan(app: FastAPI):
     init_db()
     bootstrap_legacy_api_key()
     bootstrap_admin()
-    worker.start()
-    yield
-    worker.stop()
+    try:
+        worker.start()
+        yield
+    finally:
+        worker.stop()
 
 
 app = FastAPI(
