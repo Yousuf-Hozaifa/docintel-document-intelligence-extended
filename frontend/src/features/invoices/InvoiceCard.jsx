@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../../api.js";
+import { api, openOriginal } from "../../api.js";
 import IssueList from "./IssueList.jsx";
 
 const FIELD_LABELS = {
@@ -12,7 +12,7 @@ const FIELD_LABELS = {
 const FIELD_KEYS = Object.keys(FIELD_LABELS);
 const ITEM_ATTRS = ["description", "quantity", "unit_price", "amount"];
 
-export default function InvoiceCard({ inv, onChanged }) {
+export default function InvoiceCard({ inv, filename, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [note, setNote] = useState("");
@@ -81,8 +81,9 @@ export default function InvoiceCard({ inv, onChanged }) {
       <div className="invhead">
         <span className="actions">
           {inv.extractor?.includes("gemini") && <span className="chip warn">AI-assisted fields — verify</span>}
-          {!editing && <button className="secondary" onClick={() => api.downloadCorrectedPdf(inv.id).catch((e) => setErr(e.message))}>Download corrected PDF</button>}
-          {!editing && <button className="secondary" onClick={() => api.downloadCorrectedXlsx(inv.id).catch((e) => setErr(e.message))}>Download corrected Excel</button>}
+          {!editing && <button className="secondary" onClick={() => openOriginal(inv.document_id, filename).catch((e) => setErr(e.message))}>Open original file</button>}
+          {!editing && inv.correction_count > 0 && <button className="secondary" onClick={() => api.downloadCorrectedPdf(inv.id).catch((e) => setErr(e.message))}>Download corrected PDF</button>}
+          {!editing && inv.correction_count > 0 && <button className="secondary" onClick={() => api.downloadCorrectedXlsx(inv.id).catch((e) => setErr(e.message))}>Download corrected Excel</button>}
         </span>
                 <h3>Invoice {inv.seq}{inv.page_start !== inv.page_end ? ` (pages ${inv.page_start}–${inv.page_end})` : ""}
           {inv.correction_count > 0 && <span className="chip busy" title="Number of audited manual changes"> {inv.correction_count} correction(s)</span>}</h3>
