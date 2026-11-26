@@ -130,9 +130,9 @@ def list_suppliers(request: Request):
                       COUNT(i.id) AS invoice_count,
                       MAX(i.invoice_date) AS last_invoice_date
                FROM suppliers s
-               LEFT JOIN invoices i ON i.supplier=s.name
-               LEFT JOIN documents d ON d.id=i.document_id
-                    AND d.tenant_id=s.tenant_id
+               LEFT JOIN documents d ON d.tenant_id=s.tenant_id
+               LEFT JOIN invoices i ON i.document_id=d.id
+                    AND i.supplier=s.name
                     AND i.generation_id=d.active_generation
                WHERE s.tenant_id=?
                GROUP BY s.id ORDER BY s.name COLLATE NOCASE""",
