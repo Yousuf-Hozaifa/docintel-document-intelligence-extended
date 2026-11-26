@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any
 
 MODEL_DEFAULT = "gemini-2.5-flash"
+PROMPT_VERSION = "invoice-extract-v1"
 MAX_TEXT_CHARS = 24_000
 FIELD_NAMES = (
     "invoice_number", "invoice_date", "supplier", "customer",
@@ -37,6 +39,7 @@ def llm_status() -> dict[str, Any]:
         "provider": "gemini",
         "model": os.environ.get("GEMINI_MODEL", MODEL_DEFAULT),
         "mode": "optional_enrichment",
+        "prompt_version": PROMPT_VERSION,
     }
 
 
@@ -91,9 +94,11 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    started = time.perf_counter()
     try:
         with urllib.request.urlopen(request, timeout=25) as response:
             payload = json.loads(response.read().decode("utf-8"))
+    latency_ms = round((time.perf_counter() - started) * 1000)
     except urllib.error.HTTPError as error:
         # Never include the request URL because it contains the API key.
         raise LLMUnavailable(f"Gemini API returned HTTP {error.code}") from error
@@ -123,6 +128,13 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
         value = clean[key]
         if value is not None:
             clean[key] = str(value).strip()[:500] or None
+    usage = payload.get("usageMetadata") or {}
+    clean["_usage"] = {
+        "prompt_tokens": int(usage.get("promptTokenCount", 0) or 0),
+        "output_tokens": int(usage.get("candidatesTokenCount", 0) or 0),
+        "total_tokens": int(usage.get("totalTokenCount", 0) or 0),
+        "latency_ms": latency_ms,
+    }
     return clean
 
 
@@ -133,6 +145,12 @@ def enrich_invoice(result: dict[str, Any], document_text: str) -> bool:
         return False
 
     fields = result.get("fields", {})
+    result["_llm_metadata"] = {
+        "provider": "gemini",
+        "model": llm_status()["model"],
+        "prompt_version": PROMPT_VERSION,
+        **(candidates.get("_usage") or {}),
+    }
     changed = False
     for name in FIELD_NAMES:
         candidate = candidates.get(name)
