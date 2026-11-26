@@ -168,6 +168,7 @@ def process_document(
 
         stored_name = doc["stored_name"]
         filename = doc["filename"]
+        tenant_id = doc["tenant_id"]
 
     path = _stored_path(stored_name)
     if path is None:
@@ -387,6 +388,23 @@ def process_document(
                 )
 
                 invoice_id = cursor.lastrowid
+
+                if values["supplier"]:
+                    supplier_name = str(values["supplier"]).strip()[:200]
+                    supplier_cursor = db.execute(
+                        """INSERT INTO suppliers(
+                               tenant_id, name, created_at, updated_at
+                           ) VALUES (?, ?, ?, ?)
+                           ON CONFLICT(tenant_id, name) DO NOTHING""",
+                        (tenant_id, supplier_name, now(), now()),
+                    )
+                    if supplier_cursor.rowcount:
+                        add_event(
+                            db,
+                            doc_id,
+                            "supplier_auto_created",
+                            f"supplier={supplier_name[:100]} source=invoice_extraction",
+                        )
 
                 for item_index, item in enumerate(
                     result["line_items"], 1
