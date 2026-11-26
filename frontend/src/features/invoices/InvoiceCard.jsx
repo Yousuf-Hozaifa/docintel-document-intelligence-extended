@@ -58,7 +58,12 @@ export default function InvoiceCard({ inv, onChanged }) {
   return (
     <article className="invoice">
       <div className="invhead">
-        <h3>Invoice {inv.seq}{inv.page_start !== inv.page_end ? ` (pages ${inv.page_start}–${inv.page_end})` : ""}
+        <span className="actions">
+          {inv.extractor?.includes("gemini") && <span className="chip warn">AI-assisted fields — verify</span>}
+          {!editing && <button className="secondary" onClick={() => api.downloadCorrectedPdf(inv.id).catch((e) => setErr(e.message))}>Download corrected PDF</button>}
+          {!editing && <button className="secondary" onClick={() => api.downloadCorrectedXlsx(inv.id).catch((e) => setErr(e.message))}>Download corrected Excel</button>}
+        </span>
+                <h3>Invoice {inv.seq}{inv.page_start !== inv.page_end ? ` (pages ${inv.page_start}–${inv.page_end})` : ""}
           {inv.correction_count > 0 && <span className="chip busy" title="Number of audited manual changes"> {inv.correction_count} correction(s)</span>}</h3>
         {!editing && <button onClick={start}>Edit</button>}
       </div>
