@@ -1,12 +1,12 @@
-"""Optional Google Sheets export using a server-side service account."""
+"""Optional tenant-isolated Google Sheets export using a server-side service account."""
 from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import time
 from typing import Any
 
 
@@ -17,10 +17,25 @@ class GoogleSheetsUnavailable(RuntimeError):
     """Google Sheets integration is not configured or could not be reached."""
 
 
-def google_sheets_status() -> dict[str, Any]:
+def _tenant_spreadsheets() -> dict[str, str]:
+    try:
+        mapping = json.loads(os.environ.get("GOOGLE_SHEETS_SPREADSHEET_MAP", "{}"))
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(mapping, dict):
+        return {}
+    return {
+        str(key): str(value).strip()
+        for key, value in mapping.items()
+        if str(key).isdigit() and isinstance(value, str) and value.strip()
+    }
+
+
+def google_sheets_status(tenant_id: int | None = None) -> dict[str, Any]:
+    spreadsheet_id = _tenant_spreadsheets().get(str(tenant_id)) if tenant_id is not None else None
     configured = bool(
         os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-        and os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID", "").strip()
+        and spreadsheet_id
     )
     return {
         "configured": configured,
@@ -30,12 +45,12 @@ def google_sheets_status() -> dict[str, Any]:
     }
 
 
-def append_rows(values: list[list[Any]]) -> dict[str, Any]:
-    """Append rows to the configured spreadsheet; credentials never leave server."""
-    settings = google_sheets_status()
-    if not settings["configured"]:
+def append_rows(values: list[list[Any]], tenant_id: int) -> dict[str, Any]:
+    """Append rows to the spreadsheet assigned to this tenant only."""
+    spreadsheet_id = _tenant_spreadsheets().get(str(tenant_id))
+    if not spreadsheet_id or not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip():
         raise GoogleSheetsUnavailable(
-            "Google Sheets is not configured on the backend"
+            "Google Sheets is not configured for this workspace"
         )
 
     try:
@@ -56,7 +71,6 @@ def append_rows(values: list[list[Any]]) -> dict[str, Any]:
             f"Google authentication failed: {type(error).__name__}"
         ) from error
 
-    spreadsheet_id = os.environ["GOOGLE_SHEETS_SPREADSHEET_ID"].strip()
     range_name = os.environ.get("GOOGLE_SHEETS_RANGE", "Invoices!A1").strip()
     encoded_range = urllib.parse.quote(range_name, safe="!:$")
     url = (
@@ -100,7 +114,6 @@ def append_rows(values: list[list[Any]]) -> dict[str, Any]:
 
     updates = result.get("updates", {})
     return {
-        "spreadsheet_id": spreadsheet_id,
         "updated_range": updates.get("updatedRange"),
         "updated_rows": updates.get("updatedRows", 0),
     }
