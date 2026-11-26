@@ -103,3 +103,22 @@ def test_google_sheets_export_is_explicitly_unavailable_without_credentials(clie
     response = client.post("/api/exports/google-sheets")
     assert response.status_code == 503
     assert "not configured" in response.json()["detail"]
+
+def test_llm_assisted_invoice_always_requires_human_review(client, tmp_path, spec, monkeypatch):
+    from app import pipeline
+
+    def fake_enrichment(result, source_text):
+        result["extractor"] = "rules-v1+gemini"
+        result["_llm_metadata"] = {
+            "model": "gemini-3.5-flash-lite",
+            "prompt_version": "invoice-extract-v1",
+            "latency_ms": 100,
+            "total_tokens": 200,
+        }
+        return True
+
+    monkeypatch.setattr(pipeline, "enrich_invoice", fake_enrichment)
+    document, invoice = _upload_and_process(client, tmp_path, spec)
+
+    assert invoice["needs_review"] is True
+    assert any(issue["rule_id"] == "AI-REVIEW-001" for issue in invoice["issues"])
