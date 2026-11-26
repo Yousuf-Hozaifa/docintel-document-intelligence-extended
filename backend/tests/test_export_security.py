@@ -1,5 +1,7 @@
 def test_export_values_are_safe_from_spreadsheet_formula_injection():
-    from app.routers.exports import _safe_cell, _csv_bytes
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from app.routers.exports import _safe_cell, _csv_bytes, _excel_bytes
 
     record = {
         "invoice_number": "INV-1",
@@ -22,3 +24,8 @@ def test_export_values_are_safe_from_spreadsheet_formula_injection():
     assert "'  =cmd" in csv_text
     assert _safe_cell("-125.00", "total") == "-125.00"
     assert _safe_cell("-not-a-number", "supplier") == "'-not-a-number"
+
+    workbook = load_workbook(BytesIO(_excel_bytes([record], include_all=True)))
+    supplier_cell = workbook["Invoice Register"]["C2"]
+    assert supplier_cell.value.startswith("'=")
+    assert supplier_cell.data_type != "f"
