@@ -63,6 +63,12 @@ On Linux/macOS use `source .venv/bin/activate` and `export` instead of `$env:`.
 | variable | default | meaning |
 |---|---|---|
 | `DOCINTEL_DATA_DIR` | `./data` | database and uploads |
+| `DOCINTEL_LLM_ENABLED` | `false` | enable optional Gemini invoice enrichment |
+| `GEMINI_API_KEY` | unset | private backend-only Gemini API key; never expose in frontend or commit |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | free-tier Gemini model default; confirm current availability before use |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | unset | private backend-only Google service-account JSON credential |
+| `GOOGLE_SHEETS_SPREADSHEET_ID` | unset | destination spreadsheet ID; share it with the service account |
+| `GOOGLE_SHEETS_RANGE` | `Invoices!A1` | destination A1 range for appended rows |
 | `DOCINTEL_API_KEY` | unset (open) | if set, every endpoint except `/api/health` requires header `X-API-Key` |
 | `DOCINTEL_CORS_ORIGINS` | Vite dev origins | comma-separated allowed origins |
 | `DOCINTEL_MAX_UPLOAD_MB` | 200 | per-file upload limit |
@@ -91,6 +97,11 @@ Full contract: [docs/openapi.json](docs/openapi.json). Main endpoints:
 | POST | `/api/documents` | multi-file upload (multipart `files`); per-file result `queued` / `duplicate` / `rejected` |
 | GET | `/api/documents`, `/api/documents/{id}` | list with job progress; detail (invoices paginated: `invoice_limit`, `invoice_offset`) |
 | GET | `/api/documents/{id}/file` | the original upload (for review) |
+| GET | `/api/invoices/{id}/corrected.pdf` · `/corrected.xlsx` | generated corrected-data summary PDF / corrected invoice workbook; original unchanged |
+| GET | `/api/exports/invoices.csv` · `/api/exports/invoices.xlsx` | tenant-scoped invoice register export; optional `mapping_id` for mapped columns |
+| POST | `/api/exports/google-sheets?mapping_id=` | append invoice register to configured Google Sheet |
+| GET · POST | `/api/business/dashboard`, `/api/business/suppliers`, `/api/business/purchase-orders`, `/api/business/mappings` | business dashboard, supplier directory, demo POs and reusable mappings |
+| GET · POST | `/api/invoices/{id}/approval` · GET `/api/invoices/{id}/purchase-order-match` | approval state and PO comparison |
 | POST | `/api/documents/{id}/reprocess` · DELETE `/api/documents/{id}` | re-run extraction · delete everything about a document |
 | GET · POST | `/api/jobs?status=failed` · `/api/jobs/retry-failed` | failed-job inspection and re-queue |
 | GET · PATCH | `/api/invoices/{id}` | read / correct fields and line items (audited, re-validated) |
@@ -115,6 +126,11 @@ Historical Windows verification on the previously deployed source line: **130 pa
 - **Extraction accuracy** on labeled **synthetic** invoices (three layouts, all seven file types, degraded scans, missing/ambiguous fields, tampered totals, cross-document pairs, 18 broken files): header-field exact match 99.4–99.5% on two held-out splits (199 invoices each), line items ≈ 98–99%, 100% of valid files processed, 18/18 broken files handled. **These are upper bounds: the data share an author with the extractor and no real invoices were used.** Methodology, per-file-type tables, calibration and limits: [docs/evaluation/EVALUATION.md](docs/evaluation/EVALUATION.md).
 - **Large documents (1,000 pages):** development sandbox (1 core): digital ~3.7 s / 176 MB, scanned ~430 s (~140 pages/min), Python peak ~217 MB, no failures ([docs/benchmarks/RESULTS.md](docs/benchmarks/RESULTS.md)). **Candidate's Windows 11 machine (reported, raw data pending):** digital 9.15 s / 87 MB, scanned **321.9 s (186 pages/min), peak 144 MB, no failures**; throughput flat from 10 to 1,000 pages ([docs/benchmarks/WINDOWS_REPORTED.md](docs/benchmarks/WINDOWS_REPORTED.md)). CPU/core count of that machine was not reported.
 - Reproduce: `python eval/make_dataset.py --split test; python eval/run_eval.py --split test; python eval/report_eval.py` and `python eval/bench.py run --kind scanned --pages 100`.
+
+## Optional AI and Google Sheets integrations
+
+- Gemini setup and data-handling limits: [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
+- Google Sheets service-account setup: [docs/GOOGLE_SHEETS_SETUP.md](docs/GOOGLE_SHEETS_SETUP.md).
 
 ## Optional semantic search
 Off by default (`DOCINTEL_SEMANTIC=glove` after `python -m app.semantic download-glove`, run in `backend/`). Hybrid keyword+meaning ranking over a small local word-vector model; measured cost and quality, and why it is optional: [docs/SEMANTIC.md](docs/SEMANTIC.md).
