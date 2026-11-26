@@ -4,7 +4,7 @@
 
 **Investor-demo architecture:** [Mermaid source](diagrams/investor-demo-architecture.mmd). **Investor walkthrough:** [INVESTOR_DEMO_SCRIPT.md](INVESTOR_DEMO_SCRIPT.md).
 
-_Diagram sources: `docs/diagrams/*.mmd` (Mermaid); rendered by `scripts/render_diagrams.py`. Database schema and ERD: [DATABASE.md](DATABASE.md). API contract: [openapi.json](openapi.json) (also served at `/docs`)._
+_Diagram sources: `docs/diagrams/*.mmd` (Mermaid); rendered by `scripts/render_diagrams.py`. Database schema and ERD: [DATABASE.md](DATABASE.md). Runtime API contract: `/docs`; `openapi.json` remains the original assessment snapshot until regenerated for the investor branch._
 
 ## 1. What it is
 One cohesive Python service (FastAPI) with an in-process background worker, a SQLite database and a React UI. The core application runs locally on CPU; optional provider integrations are disabled until configured.
