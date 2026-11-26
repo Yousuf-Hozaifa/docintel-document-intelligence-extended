@@ -1,6 +1,6 @@
 # Document Intelligence System
 
-Upload invoices (PDF, JPG, PNG, TIFF, XLSX, XLS, CSV) → read text or OCR → extract structured fields → validate deterministically → review, correct and search. CPU-only, no paid API, no LLM at run time.
+Upload invoices (PDF, JPG, PNG, TIFF, XLSX, XLS, CSV) → read text or OCR → extract structured fields with deterministic rules and optional Gemini AI enrichment → validate deterministically → review, correct, export and search. The LLM is optional, disabled by default, and never replaces financial validation.
 Built for the Care Guide *Senior AI Engineer* assessment. **Status and honest limits: see [Known limitations](#known-limitations) and `docs/COMPLIANCE.md`.**
 
 ## Live demo (Render)
@@ -31,9 +31,9 @@ The current Render free-tier deployment is intended for assessment/demo use. The
 
 ## Features
 - **Documents:** multi-file upload; digital PDFs (text layer), scanned PDFs/images/multi-frame TIFF (Tesseract OCR), XLSX/XLS (all sheets), CSV (delimiter detection); one-invoice-per-row Excel *registers*; multi-invoice files; corrupt/encrypted/empty/unsupported files handled with clear errors.
-- **Extraction:** invoice number, date, supplier, customer, subtotal, tax, total, currency, line items, as JSON. Missing or ambiguous values stay empty (an ambiguous `03/04/2024` is not guessed). Each value has its source text and a heuristic confidence plus the weakest OCR word confidence.
+- **Extraction:** invoice number, date, supplier, customer, subtotal, tax, total, currency, and line items. The deterministic baseline leaves missing or ambiguous values empty. Optional Gemini enrichment can suggest missing values; suggestions are labelled for human verification and cannot overwrite deterministic values. AI confidence is a review heuristic, not a calibrated probability.
 - **Validation** (stable rule IDs, `Decimal`, per-currency precision, configurable tolerance): required/invalid fields, dates, currencies, subtotal+tax=total, line arithmetic, duplicates, low OCR confidence, PDF↔PDF and PDF↔Excel cross-verification. Catalogue: `GET /api/rules`.
-- **Review:** inline corrections with audit trail and automatic re-validation, “mark reviewed”, open the original file, reprocess, retry failed jobs, delete.
+- **Review and outputs:** inline corrections with audit trail and automatic re-validation, open the immutable original, download a generated corrected-data PDF summary or corrected Excel, and export the active invoice register to CSV/XLSX.
 - **Search:** keyword (SQLite FTS5 + filters); optional meaning-based hybrid search.
 - **Background processing:** DB-backed worker with progress, retry/backoff, atomic job claim, restart recovery, duplicate-upload protection; page-streaming so memory does not grow with page count.
 
