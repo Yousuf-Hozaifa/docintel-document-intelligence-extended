@@ -1,0 +1,25 @@
+DocIntel production persistence hardening - backend test result
+
+Environment: isolated Windows worktree
+Branch: feature/production-persistence-hardening
+Working directory: worktree root
+Full-suite command: python -m pytest backend\\tests -q
+Focused scheduler command: python -m pytest backend\\tests\\test_backup_scheduler.py -q
+Run date: 2026-11-26
+
+Full backend suite:
+238 passed, 3 skipped, 0 failed, 2 warnings
+Duration: 29.91 seconds
+
+Focused scheduler suite:
+20 passed, 0 failed, 1 warning
+Duration: 3.38 seconds
+
+Warnings:
+- PyMuPDF uses deprecated typing.ByteString.
+- Starlette TestClient/httpx integration emits a deprecation warning.
+
+Scope:
+These results apply to the isolated production-persistence-hardening worktree.
+They do not represent a deployed build and do not replace historical Windows
+test evidence in windows-pytest.txt.

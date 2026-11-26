@@ -24,6 +24,7 @@ Deterministic, rule-based extraction is the baseline and the only extraction pat
 |---|---|
 | `main.py` | REST API, auth (optional API key), upload hardening, search endpoints, file serving |
 | `worker.py` | DB-backed queue: atomic claim, retry with exponential backoff, stuck-job recovery, bounded worker threads |
+| `backup_scheduler.py` | optional single-instance Render request gate, scheduled encrypted snapshots, round-trip verification, and retention |
 | `pipeline.py` | orchestrates read → store → extract → validate → cross-check → persist (+ optional embedding) |
 | `readers.py` | file-type detection and lazy readers (PDF text/OCR, images/TIFF, XLSX, XLS, CSV); bounded memory |
 | `extract.py` | rule-based invoice extractor, invoice splitter, spreadsheet register parser, OCR confidence attachment |
