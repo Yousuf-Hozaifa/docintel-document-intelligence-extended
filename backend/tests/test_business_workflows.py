@@ -123,7 +123,7 @@ def test_llm_assisted_invoice_always_requires_human_review(client, tmp_path, spe
     assert invoice["needs_review"]
     correction = client.patch(
         f"/api/invoices/{invoice['id']}",
-        json={"fields": {"total": "999.99"}, "note": "Synthetic correction while AI review is pending"},
+        json={"fields": {"customer": "Corrected Demo Customer"}, "note": "Synthetic correction while AI review is pending"},
     )
     assert correction.status_code == 200
     refreshed = client.get(f"/api/documents/{document['id']}").json()
