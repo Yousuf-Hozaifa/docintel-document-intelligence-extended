@@ -65,7 +65,7 @@ class PurchaseOrderBody(BaseModel):
 
 class MappingBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    mapping: dict[str, str] = Field(min_length=1, max_length=40)
+    mapping: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/business/dashboard")
@@ -334,6 +334,8 @@ def list_mappings(request: Request):
 @router.post("/business/mappings")
 def create_mapping(body: MappingBody, request: Request):
     tenant_id = _tenant(request)
+    if not body.mapping or len(body.mapping) > 40:
+        raise HTTPException(422, "Mapping must contain between 1 and 40 columns")
     mapping = {}
     for column, field in body.mapping.items():
         label = column.strip()
