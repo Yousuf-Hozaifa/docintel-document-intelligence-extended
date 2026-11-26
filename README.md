@@ -127,6 +127,11 @@ Historical Windows verification on the previously deployed source line: **130 pa
 - **Large documents (1,000 pages):** development sandbox (1 core): digital ~3.7 s / 176 MB, scanned ~430 s (~140 pages/min), Python peak ~217 MB, no failures ([docs/benchmarks/RESULTS.md](docs/benchmarks/RESULTS.md)). **Candidate's Windows 11 machine (reported, raw data pending):** digital 9.15 s / 87 MB, scanned **321.9 s (186 pages/min), peak 144 MB, no failures**; throughput flat from 10 to 1,000 pages ([docs/benchmarks/WINDOWS_REPORTED.md](docs/benchmarks/WINDOWS_REPORTED.md)). CPU/core count of that machine was not reported.
 - Reproduce: `python eval/make_dataset.py --split test; python eval/run_eval.py --split test; python eval/report_eval.py` and `python eval/bench.py run --kind scanned --pages 100`.
 
+## Investor demo
+
+- Product walkthrough: [docs/INVESTOR_DEMO_SCRIPT.md](docs/INVESTOR_DEMO_SCRIPT.md).
+- Architecture: [docs/diagrams/investor-demo-architecture.mmd](docs/diagrams/investor-demo-architecture.mmd).
+
 ## Optional AI and Google Sheets integrations
 
 - Gemini setup and data-handling limits: [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md).
