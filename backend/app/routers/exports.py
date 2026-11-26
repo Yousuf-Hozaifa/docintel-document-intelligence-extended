@@ -74,20 +74,24 @@ def _records(db, tenant_id: int, invoice_id: int | None = None):
     return output
 
 
-def _excel_bytes(records, include_all: bool) -> bytes:
+def _excel_bytes(records, include_all: bool, mapping: dict | None = None) -> bytes:
     book = Workbook()
     sheet = book.active
     sheet.title = "Invoice Register"
-    sheet.append(list(HEADERS))
+    headers = list(mapping.keys()) if mapping else list(HEADERS)
+    sheet.append(headers)
     for record in records:
-        sheet.append([
-            record.get(name) for name in FIELDS
-        ] + [
-            record["validation_status"],
-            "Yes" if record["needs_review"] else "No",
-            record["filename"],
-            record["correction_count"],
-        ])
+        if mapping:
+            sheet.append([record.get(field) for field in mapping.values()])
+        else:
+            sheet.append([
+                record.get(name) for name in FIELDS
+            ] + [
+                record["validation_status"],
+                "Yes" if record["needs_review"] else "No",
+                record["filename"],
+                record["correction_count"],
+            ])
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     for column in sheet.columns:
@@ -110,43 +114,64 @@ def _excel_bytes(records, include_all: bool) -> bytes:
     return output.getvalue()
 
 
-def _csv_bytes(records) -> bytes:
+def _csv_bytes(records, mapping: dict | None = None) -> bytes:
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(list(HEADERS) + ["Line Items"])
-    for record in records:
-        writer.writerow(
-            [record.get(name) for name in FIELDS]
-            + [
-                record["validation_status"],
-                "Yes" if record["needs_review"] else "No",
-                record["filename"],
-                record["correction_count"],
-                json.dumps(record["line_items"], ensure_ascii=False),
-            ]
-        )
+    if mapping:
+        writer.writerow(list(mapping.keys()))
+        for record in records:
+            writer.writerow([record.get(field) for field in mapping.values()])
+    else:
+        writer.writerow(list(HEADERS) + ["Line Items"])
+        for record in records:
+            writer.writerow(
+                [record.get(name) for name in FIELDS]
+                + [
+                    record["validation_status"],
+                    "Yes" if record["needs_review"] else "No",
+                    record["filename"],
+                    record["correction_count"],
+                    json.dumps(record["line_items"], ensure_ascii=False),
+                ]
+            )
     return output.getvalue().encode("utf-8-sig")
 
 
+def _load_mapping(db, tenant_id: int, mapping_id: int | None):
+    if mapping_id is None:
+        return None
+    row = db.execute(
+        "SELECT mapping_json FROM mapping_templates WHERE id=? AND tenant_id=?",
+        (mapping_id, tenant_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Mapping template not found")
+    return json.loads(row["mapping_json"])
+
+
 @router.get("/exports/invoices.csv")
-def export_csv(request: Request):
+def export_csv(request: Request, mapping_id: int | None = None):
     """Export the current tenant's active invoice register as CSV."""
+    tenant_id = _tenant_id(request)
     with connect() as db:
-        records = _records(db, _tenant_id(request))
+        records = _records(db, tenant_id)
+        mapping = _load_mapping(db, tenant_id, mapping_id)
     return Response(
-        _csv_bytes(records),
+        _csv_bytes(records, mapping),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="docintel-invoices.csv"'},
     )
 
 
 @router.get("/exports/invoices.xlsx")
-def export_xlsx(request: Request):
+def export_xlsx(request: Request, mapping_id: int | None = None):
     """Export the current tenant's active invoice register as XLSX."""
+    tenant_id = _tenant_id(request)
     with connect() as db:
-        records = _records(db, _tenant_id(request))
+        records = _records(db, tenant_id)
+        mapping = _load_mapping(db, tenant_id, mapping_id)
     return Response(
-        _excel_bytes(records, include_all=True),
+        _excel_bytes(records, include_all=True, mapping=mapping),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="docintel-invoices.xlsx"'},
     )
