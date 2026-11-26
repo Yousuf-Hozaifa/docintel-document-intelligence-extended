@@ -6,6 +6,7 @@ const MAP_KEYS = ["invoice_number", "invoice_date", "supplier", "total", "curren
 export default function BusinessDashboard() {
   const [data, setData] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [mappings, setMappings] = useState([]);
   const [googleSheets, setGoogleSheets] = useState(null);
   const [sheetsMessage, setSheetsMessage] = useState("");
@@ -26,13 +27,14 @@ export default function BusinessDashboard() {
 
   const load = useCallback(async () => {
     try {
-      const [summary, supplierData, mappingData, health] = await Promise.all([
-        api.dashboard(), api.suppliers(), api.mappings(), api.googleSheetsStatus(),
+      const [summary, supplierData, mappingData, health, poData] = await Promise.all([
+        api.dashboard(), api.suppliers(), api.mappings(), api.googleSheetsStatus(), api.purchaseOrders(),
       ]);
       setData(summary);
       setSuppliers(supplierData.suppliers || []);
       setMappings(mappingData.mappings || []);
       setGoogleSheets(health || null);
+      setPurchaseOrders(poData.purchase_orders || []);
       setError("");
     } catch (e) { setError(e.message); }
   }, []);
@@ -140,6 +142,7 @@ export default function BusinessDashboard() {
             <label>Currency<select value={poCurrency} onChange={(e) => setPoCurrency(e.target.value)}><option>BDT</option><option>USD</option><option>EUR</option><option>GBP</option></select></label>
             <button disabled={saving}>{saving ? "Saving…" : "Add sample purchase order"}</button>
           </form>
+          {purchaseOrders.length > 0 && <ul>{purchaseOrders.slice(0, 5).map((po) => <li key={po.id}><strong>{po.po_number}</strong><span>{po.supplier_name} · {po.currency || ""} {po.total || ""}</span></li>)}</ul>}
         </article>
       </div>
     </section>
