@@ -23,7 +23,7 @@ from .review import (
     revalidate_related,
     write_issues,
 )
-from .validate import validate_invoice
+from .validate import Issue, validate_invoice
 
 
 def _discard_generation(db, doc_id: int, generation_id: int) -> None:
@@ -460,6 +460,16 @@ def process_document(
                         values,
                     )
                 )
+
+                if result.get("extractor", "").endswith("+gemini"):
+                    issues.append(
+                        Issue(
+                            "AI-REVIEW-001",
+                            "warning",
+                            None,
+                            "AI-assisted values or line items were added. Verify every suggestion against the original document before approval.",
+                        )
+                    )
 
                 write_issues(db, invoice_id, issues)
 
