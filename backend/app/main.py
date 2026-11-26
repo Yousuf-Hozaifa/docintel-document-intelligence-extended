@@ -39,6 +39,7 @@ from .user_auth import bootstrap_admin
 from .routers.auth import router as auth_router
 from .routers.admin import router as admin_router
 from .routers.exports import router as exports_router
+from .routers.business import router as business_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -97,6 +98,7 @@ app.include_router(upload_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(invoice_review_router, prefix="/api")
 app.include_router(exports_router, prefix="/api")
+app.include_router(business_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
 
