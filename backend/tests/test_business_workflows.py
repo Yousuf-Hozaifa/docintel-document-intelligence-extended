@@ -75,3 +75,31 @@ def test_purchase_order_match_and_mapping_export(client, tmp_path, spec):
     assert exported.status_code == 200
     assert "Vendor Name" in exported.text
     assert invoice["supplier"] in exported.text
+
+def test_corrected_downloads_preserve_original_upload(client, tmp_path, spec):
+    document, invoice = _upload_and_process(client, tmp_path, spec)
+    doc_id = document["id"]
+    original_before = client.get(f"/api/documents/{doc_id}/file")
+    assert original_before.status_code == 200
+
+    corrected = client.patch(
+        f"/api/invoices/{invoice['id']}",
+        json={"fields": {"total": "999.99"}, "note": "Synthetic test correction"},
+    )
+    assert corrected.status_code == 200, corrected.text
+
+    pdf = client.get(f"/api/invoices/{invoice['id']}/corrected.pdf")
+    xlsx = client.get(f"/api/invoices/{invoice['id']}/corrected.xlsx")
+    original_after = client.get(f"/api/documents/{doc_id}/file")
+
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    assert xlsx.status_code == 200
+    assert original_after.content == original_before.content
+
+
+def test_google_sheets_export_is_explicitly_unavailable_without_credentials(client, monkeypatch):
+    monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_JSON", raising=False)
+    monkeypatch.delenv("GOOGLE_SHEETS_SPREADSHEET_ID", raising=False)
+    response = client.post("/api/exports/google-sheets")
+    assert response.status_code == 503
+    assert "not configured" in response.json()["detail"]
