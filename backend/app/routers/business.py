@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..db import add_event, connect, now
+from ..google_sheets import google_sheets_status
 
 router = APIRouter()
 MAP_FIELDS = {
@@ -66,6 +67,11 @@ class PurchaseOrderBody(BaseModel):
 class MappingBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     mapping: dict[str, str] = Field(default_factory=dict)
+
+
+@router.get("/business/google-sheets/status")
+def google_sheets_integration_status(request: Request):
+    return google_sheets_status(_tenant(request))
 
 
 @router.get("/business/dashboard")
