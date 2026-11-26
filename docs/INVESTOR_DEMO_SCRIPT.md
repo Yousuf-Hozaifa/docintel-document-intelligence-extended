@@ -22,7 +22,7 @@
 | 4 | Open original file and compare with invoice fields | The original upload is immutable. Evidence, validation findings and corrections remain traceable. |
 | 5 | Correct an intentionally inaccurate value and save | DocIntel records the correction and re-runs deterministic validation. |
 | 6 | Show the corrected PDF summary and corrected Excel download beside Open original | These are separate generated outputs. The PDF is a clean corrected-data summary, not a pixel-perfect reconstruction of the source invoice layout. |
-| 7 | Approve the invoice | Approval is audited. Unresolved blocking validation errors prevent approval. |
+| 7 | Approve the invoice | Approval is audited. Unresolved unresolved blocking validation errors or AI-review issues prevent approval. |
 | 8 | Add a sample purchase order and click Check PO match | The demo currently compares supplier, currency and invoice total against POs entered in this workspace. It is not yet a full goods-received / three-way match. |
 | 9 | Create a Smart Data Mapping template | Map DocIntel fields to the company's spreadsheet column names once, then reuse the mapping for later exports. |
 | 10 | Export mapped Excel/CSV; optionally send to Google Sheets | Excel/CSV downloads work locally. Google Sheets writes only when the real service-account connector is configured and authorized. |
