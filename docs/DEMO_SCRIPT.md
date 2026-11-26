@@ -1,4 +1,6 @@
-# Recorded walkthrough: script (target 7–7:30 min)
+# Original assessment walkthrough: script (target 7–7:30 min)
+
+> This script documents the original Care Guide assessment build and its deterministic-only configuration. For the expanded investor-demo product, use [INVESTOR_DEMO_SCRIPT.md](INVESTOR_DEMO_SCRIPT.md); do not use the original script to describe the new LLM and business integrations.
 
 Everything below was executed against the real app with the files from `scripts/seed_demo.py`; the outcomes quoted are what the app actually showed (sandbox, GloVe semantic search on). Screenshots from that run: `docs/screenshots/`. **Rehearse once on your machine before recording; OCR speed and exact confidence percentages can differ.**
 
