@@ -16,7 +16,7 @@ This branch extends the assessment application without changing the original rep
 ## Delivery phases
 1. **LLM extraction foundation:** provider adapter, structured JSON, timeouts, safe errors, opt-in config, candidate provenance, deterministic validation, unit tests.
 2. **Corrected outputs:** tenant-scoped CSV/XLSX export and corrected invoice report; correction history alongside original file.
-3. **Business data automation:** invoice register, reusable column mapping templates, batch export, Google Sheets OAuth connector (only after user authorizes credentials).
+3. **Business data automation:** invoice register, reusable column mapping templates, batch export, Google Sheets service-account connector with tenant-specific spreadsheet mapping (only after the owner configures credentials and shares the destination sheet).
 4. **Finance operations:** review/approval states, supplier directory, sample purchase-order matching, audit trail.
 5. **Investor experience:** accounts-payable dashboard, calculated metrics, synthetic demo dataset, guided end-to-end walkthrough.
 
@@ -30,7 +30,7 @@ Gemini free-tier data may be used by Google to improve its products. Therefore t
 
 ## Demo-vs-production boundary
 - Functional demo: Gemini enrichment when configured, existing OCR/rules/corrections, derived exports, and sample-data workflows.
-- Connector not live until configured: Google Sheets requires OAuth or service-account setup and explicit spreadsheet access.
+- Connector not live until configured: Google Sheets requires a server-side service-account key, a spreadsheet ID mapped to each tenant, and explicit spreadsheet sharing.
 - Demo workflows must be labelled as such. Do not imply a live ERP connection.
 - Current Render Free filesystem is ephemeral. Durable customer use requires managed database and object storage; no paid infrastructure is provisioned by this roadmap.
 
