@@ -10,4 +10,4 @@ xlrd>=2.0.1
 
 cryptography>=42.0
 
-google-auth>=2.29
+google-auth[requests]>=2.29
