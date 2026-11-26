@@ -28,7 +28,9 @@ NUMERIC_FIELDS = {
 
 def _safe_cell(value, field: str | None = None):
     """Prevent spreadsheet formula injection while preserving numeric negatives."""
-    if not isinstance(value, str) or not value.startswith(("=", "+", "-", "@")):
+    if not isinstance(value, str):
+        return value
+    if not value.lstrip(" \t\r\n").startswith(("=", "+", "-", "@")):
         return value
     if field in NUMERIC_FIELDS:
         try:
@@ -110,7 +112,7 @@ def _excel_bytes(records, include_all: bool, mapping: dict | None = None) -> byt
             ] + [
                 record["validation_status"],
                 "Yes" if record["needs_review"] else "No",
-                record["filename"],
+                _safe_cell(record["filename"], "filename"),
                 record["correction_count"],
             ])
     sheet.freeze_panes = "A2"
@@ -152,7 +154,7 @@ def _csv_bytes(records, mapping: dict | None = None) -> bytes:
                 + [
                     record["validation_status"],
                     "Yes" if record["needs_review"] else "No",
-                    record["filename"],
+                    _safe_cell(record["filename"], "filename"),
                     record["correction_count"],
                     json.dumps([{**item, "description": _safe_cell(item.get("description"), "description")} for item in record["line_items"]], ensure_ascii=False),
                 ]
@@ -218,7 +220,7 @@ def export_google_sheets(request: Request, mapping_id: int | None = None):
         values = [list(HEADERS) + ["Line Items"]]
         for record in records:
             values.append(
-                [record.get(name) for name in FIELDS]
+                [_safe_cell(record.get(name), name) for name in FIELDS]
                 + [
                     record["validation_status"],
                     "Yes" if record["needs_review"] else "No",
