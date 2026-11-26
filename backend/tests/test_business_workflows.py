@@ -121,4 +121,19 @@ def test_llm_assisted_invoice_always_requires_human_review(client, tmp_path, spe
     document, invoice = _upload_and_process(client, tmp_path, spec)
 
     assert invoice["needs_review"]
-    assert any(issue["rule_id"] == "AI-REVIEW-001" for issue in invoice["issues"])
+    ai_issue = next(issue for issue in invoice["issues"] if issue["rule_id"] == "AI-REVIEW-001")
+    blocked = client.post(
+        f"/api/invoices/{invoice['id']}/approval",
+        json={"status": "approved"},
+    )
+    assert blocked.status_code == 409
+    resolved = client.post(
+        f"/api/issues/{ai_issue['id']}/resolve",
+        json={"resolved": True},
+    )
+    assert resolved.status_code == 200
+    approved = client.post(
+        f"/api/invoices/{invoice['id']}/approval",
+        json={"status": "approved", "note": "AI suggestion verified"},
+    )
+    assert approved.status_code == 200
