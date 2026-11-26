@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [master]
   push:
-    branches: [feature/user-auth-open-registration-admin]
+    branches: [feature/user-auth-open-registration-admin, feature/investor-demo-llm-automation]
 
 jobs:
   backend:
