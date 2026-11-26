@@ -9,7 +9,7 @@
    - `GEMINI_API_KEY=<private key>`
    - `GEMINI_MODEL=gemini-3.5-flash-lite`
 3. Confirm `GET /api/health` reports `llm.available=true`. This confirms configuration only; run a synthetic invoice through the pipeline to verify actual inference.
-4. If demonstrating Google Sheets, configure `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEETS_SPREADSHEET_ID`, and share the spreadsheet with the service-account email. Confirm `google_sheets.configured=true`.
+4. If demonstrating Google Sheets, configure `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEETS_SPREADSHEET_MAP` with a separate spreadsheet ID for the demo tenant, and share that spreadsheet with the service-account email. Confirm `google_sheets.configured=true`.
 5. Prepare a sample PO whose supplier, currency and total match one synthetic invoice.
 6. Do not upload real customer invoices to the Gemini free tier. Free-tier content may be used by Google to improve its products.
 
