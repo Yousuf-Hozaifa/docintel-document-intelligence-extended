@@ -76,8 +76,18 @@ async function downloadFile(path, filename) {
 }
 
 export const api = {
-  exportInvoicesXlsx: () => downloadFile("/api/exports/invoices.xlsx", "docintel-invoices.xlsx"),
-  exportInvoicesCsv: () => downloadFile("/api/exports/invoices.csv", "docintel-invoices.csv"),
+  exportInvoicesXlsx: (mappingId) => downloadFile("/api/exports/invoices.xlsx" + (mappingId ? "?mapping_id=" + mappingId : ""), "docintel-invoices.xlsx"),
+  exportInvoicesCsv: (mappingId) => downloadFile("/api/exports/invoices.csv" + (mappingId ? "?mapping_id=" + mappingId : ""), "docintel-invoices.csv"),
+  dashboard: () => request("/api/business/dashboard"),
+  suppliers: () => request("/api/business/suppliers"),
+  saveSupplier: (body) => request("/api/business/suppliers", json("POST", body)),
+  purchaseOrders: () => request("/api/business/purchase-orders"),
+  createPurchaseOrder: (body) => request("/api/business/purchase-orders", json("POST", body)),
+  mappings: () => request("/api/business/mappings"),
+  createMapping: (body) => request("/api/business/mappings", json("POST", body)),
+  getApproval: (id) => request("/api/invoices/" + id + "/approval"),
+  updateApproval: (id, body) => request("/api/invoices/" + id + "/approval", json("POST", body)),
+  matchPurchaseOrder: (id) => request("/api/invoices/" + id + "/purchase-order-match"),
   downloadCorrectedXlsx: (id) => downloadFile(`/api/invoices/${id}/corrected.xlsx`, `invoice-${id}-corrected.xlsx`),
   downloadCorrectedPdf: (id) => downloadFile(`/api/invoices/${id}/corrected.pdf`, `invoice-${id}-corrected.pdf`),
   health: () => request("/api/health"),
