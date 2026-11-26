@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-MODEL_DEFAULT = "gemini-2.5-flash"
+MODEL_DEFAULT = "gemini-3.5-flash-lite"
 PROMPT_VERSION = "invoice-extract-v1"
 MAX_TEXT_CHARS = 24_000
 FIELD_NAMES = (
