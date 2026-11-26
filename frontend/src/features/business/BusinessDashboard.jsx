@@ -7,6 +7,8 @@ export default function BusinessDashboard() {
   const [data, setData] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
   const [mappings, setMappings] = useState([]);
+  const [googleSheets, setGoogleSheets] = useState(null);
+  const [sheetsMessage, setSheetsMessage] = useState("");
   const [error, setError] = useState("");
   const [templateName, setTemplateName] = useState("My accounting export");
   const [columns, setColumns] = useState({
@@ -24,12 +26,13 @@ export default function BusinessDashboard() {
 
   const load = useCallback(async () => {
     try {
-      const [summary, supplierData, mappingData] = await Promise.all([
-        api.dashboard(), api.suppliers(), api.mappings(),
+      const [summary, supplierData, mappingData, health] = await Promise.all([
+        api.dashboard(), api.suppliers(), api.mappings(), api.health(),
       ]);
       setData(summary);
       setSuppliers(supplierData.suppliers || []);
       setMappings(mappingData.mappings || []);
+      setGoogleSheets(health.google_sheets || null);
       setError("");
     } catch (e) { setError(e.message); }
   }, []);
@@ -47,6 +50,15 @@ export default function BusinessDashboard() {
     try {
       await api.createMapping({ name: templateName.trim(), mapping });
       await load();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const exportSheets = async (mappingId) => {
+    setSaving(true); setSheetsMessage("");
+    try {
+      const result = await api.exportGoogleSheets(mappingId);
+      setSheetsMessage("Exported " + result.exported_rows + " invoice row(s) to " + (result.updated_range || "Google Sheets") + ".");
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   };
@@ -104,12 +116,15 @@ export default function BusinessDashboard() {
         <article className="business-panel">
           <h3>Smart Data Mapping</h3>
           <p>Save your company's spreadsheet column names once, then reuse them for future invoice exports.</p>
+          <p>Google Sheets: <strong>{googleSheets?.configured ? "Configured" : "Not configured"}</strong></p>
+          <button className="secondary" disabled={saving || !googleSheets?.configured} onClick={() => exportSheets()}>Export invoice register to Google Sheets</button>
+          {sheetsMessage && <p className="banner busy">{sheetsMessage}</p>}
           <form onSubmit={saveMapping} className="business-form">
             <label>Template name<input value={templateName} onChange={(e) => setTemplateName(e.target.value)} /></label>
             {MAP_KEYS.map((key) => <label key={key}>{key.replaceAll("_", " ")} column<input value={columns[key]} onChange={(e) => setColumns((current) => ({ ...current, [key]: e.target.value }))} /></label>)}
             <button disabled={saving}>{saving ? "Saving…" : "Save mapping template"}</button>
           </form>
-          {mappings.length > 0 && <ul className="mapping-list">{mappings.map((item) => <li key={item.id}><strong>{item.name}</strong><span><button className="secondary" onClick={() => api.exportInvoicesXlsx(item.id).catch((e) => setError(e.message))}>Export mapped Excel</button> <button className="secondary" onClick={() => api.exportInvoicesCsv(item.id).catch((e) => setError(e.message))}>Export mapped CSV</button></span></li>)}</ul>}
+          {mappings.length > 0 && <ul className="mapping-list">{mappings.map((item) => <li key={item.id}><strong>{item.name}</strong><span><button className="secondary" onClick={() => api.exportInvoicesXlsx(item.id).catch((e) => setError(e.message))}>Export mapped Excel</button> <button className="secondary" onClick={() => api.exportInvoicesCsv(item.id).catch((e) => setError(e.message))}>Export mapped CSV</button> <button className="secondary" disabled={!googleSheets?.configured || saving} onClick={() => exportSheets(item.id)}>Send to Google Sheets</button></span></li>)}</ul>}
         </article>
         <article className="business-panel">
           <h3>Purchase-order matching</h3>
