@@ -48,7 +48,7 @@ export default function Inspector({ id, onChanged, onDeleted }) {
         <p className="banner busy">Showing {doc.invoices.length} of {doc.invoice_total} invoices in this document.{" "}
           <button className="link" onClick={() => setLimit((l) => Math.min(l + 25, 500))}>Show 25 more</button></p>
       )}
-      {doc.invoices.map((inv) => <InvoiceCard key={`${inv.id}-${inv.correction_count}-${inv.issues.length}-${inv.needs_review}`} inv={inv} onChanged={changed} />)}
+      {doc.invoices.map((inv) => <InvoiceCard key={`${inv.id}-${inv.correction_count}-${inv.issues.length}-${inv.needs_review}`} inv={inv} filename={doc.filename} onChanged={changed} />)}
       <details>
         <summary>Processing history</summary>
         <ol className="history">{doc.history.map((h, i) => <li key={i}><time>{h.ts}</time> {h.event} {h.detail && <small>{h.detail}</small>}</li>)}</ol>

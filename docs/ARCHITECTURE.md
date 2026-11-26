@@ -2,18 +2,20 @@
 
 ![Architecture](diagrams/architecture.png)
 
-_Diagram sources: `docs/diagrams/*.mmd` (Mermaid); rendered by `scripts/render_diagrams.py`. Database schema and ERD: [DATABASE.md](DATABASE.md). API contract: [openapi.json](openapi.json) (also served at `/docs`)._
+**Investor-demo architecture:** [Mermaid source](diagrams/investor-demo-architecture.mmd). **Investor walkthrough:** [INVESTOR_DEMO_SCRIPT.md](INVESTOR_DEMO_SCRIPT.md).
+
+_Diagram sources: `docs/diagrams/*.mmd` (Mermaid); rendered by `scripts/render_diagrams.py`. Database schema and ERD: [DATABASE.md](DATABASE.md). Runtime API contract: `/docs`; `openapi.json` remains the original assessment snapshot until regenerated for the investor branch._
 
 ## 1. What it is
-One cohesive Python service (FastAPI) with an in-process background worker, a SQLite database and a React UI. No external services: it runs on a single 8 GB Windows laptop, CPU only.
-Deterministic, rule-based extraction is the baseline and the only extraction path; **the application never calls an LLM or any paid API**.
+One cohesive Python service (FastAPI) with an in-process background worker, a SQLite database and a React UI. The core application runs locally on CPU; optional provider integrations are disabled until configured.
+Deterministic, rule-based extraction remains the baseline. Optional Gemini enrichment fills missing fields only, marks every suggestion for review, and never replaces deterministic financial validation. The optional Google Sheets connector appends tenant-authorized exports through a server-side service account.
 
 ## 2. Request and processing flow
 ![Processing flow](diagrams/processing-flow.png)
 
 1. **Upload** (`POST /api/documents`, many files): each file is checked independently (extension allow-list, streamed size limit, magic bytes vs extension), hashed (SHA-256) and stored under a random name. Identical bytes are not processed twice. A queued job is created.
 2. **Worker** claims the job atomically and reads the file **page by page** (generator): text layer via PyMuPDF, otherwise render at 200 dpi and OCR with Tesseract; spreadsheets sheet by sheet; CSV with delimiter detection. Each page is committed (progress is visible; a crash loses at most one page of work).
-3. **Extraction**: a spreadsheet with invoice-number and total columns is a *register* (one invoice per row); otherwise pages are split into invoices wherever the invoice number changes and fields/line items are extracted with rules. Every value keeps its source line, a heuristic confidence, and (for OCR) the weakest word confidence.
+3. **Extraction**: a spreadsheet with invoice-number and total columns is a *register* (one invoice per row); otherwise pages are split into invoices wherever the invoice number changes and fields/line items are extracted with rules. If `DOCINTEL_LLM_ENABLED=true`, Gemini may fill only missing fields from the invoice text. AI candidates are tagged for human verification; prompt version, model, latency and token usage are recorded in the document event log. Every deterministic value keeps source evidence and heuristic confidence.
 4. **Validation** (deterministic, stable rule IDs, `Decimal`, per-currency precision and tolerance), then **cross-document checks** (duplicates; PDF/image vs Excel verification).
 5. Results, issues and history are persisted; the document is `completed`, `partial` (some pages failed) or `failed`. A reviewer inspects, corrects (audited, re-validated), marks warnings reviewed, searches, reprocesses or deletes.
 
@@ -28,6 +30,10 @@ Deterministic, rule-based extraction is the baseline and the only extraction pat
 | `pipeline.py` | orchestrates read → store → extract → validate → cross-check → persist (+ optional embedding) |
 | `readers.py` | file-type detection and lazy readers (PDF text/OCR, images/TIFF, XLSX, XLS, CSV); bounded memory |
 | `extract.py` | rule-based invoice extractor, invoice splitter, spreadsheet register parser, OCR confidence attachment |
+| `llm.py` | optional Gemini adapter, JSON allowlisting, missing-field enrichment, prompt version and usage metadata |
+| `google_sheets.py` | optional service-account authentication and append-only Google Sheets export |
+| `routers/exports.py` | tenant-scoped CSV/XLSX and corrected PDF-summary downloads; Google Sheets export |
+| `routers/business.py` | dashboard metrics, supplier directory, approvals, purchase-order matching and mapping templates |
 | `validate.py` | rule engine (`RULES` catalogue at `/api/rules`) |
 | `review.py` | duplicate and cross-document verification, issue persistence, re-validation |
 | `corrections.py` | audited manual corrections, "mark reviewed" |
@@ -39,7 +45,7 @@ Deterministic, rule-based extraction is the baseline and the only extraction pat
 |---|---|---|
 | SQLite (WAL, FTS5) instead of PostgreSQL + pgvector | nothing to install or run; fits the 8 GB CPU-only constraint; keyword search and brute-force vectors are fast enough at this scale (measured) | single writer process; no horizontal scaling. Move to PostgreSQL/pgvector when chunk counts pass ~250k–1M or several API/worker processes are needed |
 | DB-backed worker threads instead of Redis/Celery | one process, atomic claim in SQL, survives restarts (stuck jobs requeued) | workers share the API process (OCR runs in Tesseract subprocesses, so API stays responsive; measured p95 20 ms during a scan); not a distributed queue |
-| Rules first, no LLM | reliable, explainable, free, offline; every value has evidence | brittle on unseen layouts; accuracy on real invoices is unmeasured (see EVALUATION.md) |
+| Deterministic rules plus optional LLM enrichment | rules remain explainable and validate financial arithmetic; Gemini can propose missing fields on unseen layouts without silently overriding rule output | free-tier content may be used to improve provider products; synthetic demo documents only; quotas/model availability change; accuracy on real invoices is unmeasured |
 | Page-streaming + bounded OCR concurrency | memory independent of page count (measured flat to 1,000 scanned pages) | OCR throughput bound by CPU: ~125–140 pages/min on one sandbox core |
 | MuPDF cache flush + Tesseract thread cap | halved peak memory (502 → 249 MB at 100 pages); 1.7× faster on one core | the thread-cap benefit on multi-core CPUs is unmeasured |
 | Money as `Decimal` strings, tolerance per currency | no float rounding errors; JPY/KWD precision handled | tolerance is a global setting (`DOCINTEL_TOLERANCE_MINOR_UNITS`) |
@@ -57,6 +63,8 @@ Deterministic, rule-based extraction is the baseline and the only extraction pat
 | identical file uploaded again | reported as `duplicate`; no new job (failed documents can be re-uploaded or reprocessed) |
 | duplicate / conflicting invoice across files | flagged on **both** files (`VAL-DUP-001`, `VAL-XDOC-001`) |
 | embedding/semantic failure | logged as an event; the document still completes |
+| Gemini disabled, rate-limited or unavailable | deterministic extraction continues; provider error is logged without exposing the API key |
+| Google Sheets not configured or permission denied | export returns a clear unavailable/permission error; no fake success is reported |
 | reprocess / delete | related documents' duplicate and cross-check flags are refreshed |
 | **untested here:** disk full, SQLite lock contention under many concurrent writers, very large uploads over a slow link | not exercised |
 
@@ -67,4 +75,4 @@ Deterministic, rule-based extraction is the baseline and the only extraction pat
 - **Not measured:** the target Windows / 8 GB machine, concurrent users, multi-core scaling, files above ~110 MB.
 
 ## 7. What changes for production
-PostgreSQL + pgvector (or another vector index), a real queue and separate worker processes, object storage for uploads, per-user authentication and roles, TLS termination, structured logs/metrics/tracing, parser sandboxing, backups and retention policy. See [SECURITY.md](SECURITY.md) for the security gaps.
+PostgreSQL + pgvector (or another vector index), a real queue and separate worker processes, object storage for uploads, production-grade secret management, role-based approvals, TLS termination, structured logs/metrics/tracing, parser sandboxing, backups and retention policy. Gemini free-tier use is not suitable for confidential production invoices; use an approved provider tier and contractual data protections before sending customer data. See [SECURITY.md](SECURITY.md) for the security gaps.

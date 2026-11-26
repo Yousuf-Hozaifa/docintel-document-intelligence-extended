@@ -54,7 +54,44 @@ const json = (method, body) => ({
   body: JSON.stringify(body ?? {}),
 });
 
+async function downloadFile(path, filename) {
+  const headers = {};
+  if (authToken.get()) headers.Authorization = "Bearer " + authToken.get();
+  else if (apiKey.get()) headers["X-API-Key"] = apiKey.get();
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try { detail = (await response.json()).detail || detail; } catch {}
+    throw new ApiError(response.status, detail);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 export const api = {
+  exportInvoicesXlsx: (mappingId) => downloadFile("/api/exports/invoices.xlsx" + (mappingId ? "?mapping_id=" + mappingId : ""), "docintel-invoices.xlsx"),
+  exportInvoicesCsv: (mappingId) => downloadFile("/api/exports/invoices.csv" + (mappingId ? "?mapping_id=" + mappingId : ""), "docintel-invoices.csv"),
+  dashboard: () => request("/api/business/dashboard"),
+  googleSheetsStatus: () => request("/api/business/google-sheets/status"),
+  exportGoogleSheets: (mappingId) => request("/api/exports/google-sheets" + (mappingId ? "?mapping_id=" + mappingId : ""), { method: "POST" }),
+  suppliers: () => request("/api/business/suppliers"),
+  saveSupplier: (body) => request("/api/business/suppliers", json("POST", body)),
+  purchaseOrders: () => request("/api/business/purchase-orders"),
+  createPurchaseOrder: (body) => request("/api/business/purchase-orders", json("POST", body)),
+  mappings: () => request("/api/business/mappings"),
+  createMapping: (body) => request("/api/business/mappings", json("POST", body)),
+  getApproval: (id) => request("/api/invoices/" + id + "/approval"),
+  updateApproval: (id, body) => request("/api/invoices/" + id + "/approval", json("POST", body)),
+  matchPurchaseOrder: (id) => request("/api/invoices/" + id + "/purchase-order-match"),
+  downloadCorrectedXlsx: (id) => downloadFile(`/api/invoices/${id}/corrected.xlsx`, `invoice-${id}-corrected.xlsx`),
+  downloadCorrectedPdf: (id) => downloadFile(`/api/invoices/${id}/corrected.pdf`, `invoice-${id}-corrected.pdf`),
   health: () => request("/api/health"),
   register: (credentials) => request("/api/auth/register", json("POST", credentials)),
   login: (credentials) => request("/api/auth/login", json("POST", credentials)),

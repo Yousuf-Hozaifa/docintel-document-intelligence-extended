@@ -102,3 +102,25 @@ button.danger { border-color: var(--bad); color: var(--bad); }
 .admin-stats span { color: var(--muted); font-size: .8rem; }
 .table-scroll { overflow-x: auto; }
 @media (max-width: 800px) { .admin-stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .account-label { align-self: flex-start; } }
+
+.business-dashboard { margin: 1.25rem 0 1.5rem; padding: 1.1rem; border: 1px solid var(--border, #d8dee8); border-radius: 12px; background: var(--panel, #fff); }
+.business-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .9rem; }
+.business-heading h2 { margin: 0 0 .2rem; font-size: 1.2rem; }
+.business-heading p, .business-panel > p { margin: .2rem 0 .7rem; color: var(--muted, #667085); font-size: .9rem; }
+.business-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .65rem; }
+.business-kpis article { padding: .8rem; border: 1px solid var(--border, #e1e5ec); border-radius: 9px; background: var(--surface, #f8fafc); display: grid; gap: .3rem; }
+.business-kpis span { color: var(--muted, #667085); font-size: .78rem; }
+.business-kpis strong { font-size: 1.35rem; }
+.business-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: .8rem; }
+.business-panel { min-width: 0; padding: .9rem; border: 1px solid var(--border, #e1e5ec); border-radius: 9px; }
+.business-panel h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.business-panel ul { list-style: none; margin: .5rem 0 0; padding: 0; }
+.business-panel li { display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding: .45rem 0; border-bottom: 1px solid var(--border, #edf0f4); font-size: .88rem; }
+.business-panel li span { color: var(--muted, #667085); text-align: right; }
+.business-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.business-form label { display: grid; gap: .25rem; font-size: .82rem; text-transform: capitalize; }
+.business-form input, .business-form select { width: 100%; min-width: 0; }
+.business-form button { grid-column: 1 / -1; justify-self: start; }
+.mapping-list button { margin: .15rem; }
+@media (max-width: 1050px) { .business-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .business-panels { grid-template-columns: 1fr; } .business-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .business-form { grid-template-columns: 1fr; } }

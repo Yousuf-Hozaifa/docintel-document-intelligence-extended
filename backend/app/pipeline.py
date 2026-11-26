@@ -13,6 +13,7 @@ from .db import add_event, connect, now
 from .document_helpers import _stored_path
 from .errors import CorruptFile, DocumentError, NoContent
 from .extract import FIELDS, extract_invoice, extract_register, segment_pages
+from .llm import LLMUnavailable, enrich_invoice
 from .readers import detect_type, open_pages
 from .semantic import embed_after_processing
 from .review import (
@@ -22,7 +23,7 @@ from .review import (
     revalidate_related,
     write_issues,
 )
-from .validate import validate_invoice
+from .validate import Issue, validate_invoice
 
 
 def _discard_generation(db, doc_id: int, generation_id: int) -> None:
@@ -167,6 +168,7 @@ def process_document(
 
         stored_name = doc["stored_name"]
         filename = doc["filename"]
+        tenant_id = doc["tenant_id"]
 
     path = _stored_path(stored_name)
     if path is None:
@@ -304,6 +306,42 @@ def process_document(
 
         for segment in segment_pages(seg_input) if seg_input else []:
             result = extract_invoice(segment)
+            segment_text = "\n".join(page[1] for page in segment)
+            try:
+                enriched = enrich_invoice(result, segment_text)
+                if enriched:
+                    with connect() as db:
+                        add_event(
+                            db,
+                            doc_id,
+                            "llm_enrichment",
+                            (
+                                f"generation={generation_id} page_start={segment[0][0]} "
+                                f"page_end={segment[-1][0]} "
+                                f"provider=gemini model={result.get('_llm_metadata', {}).get('model')} "
+                                f"prompt={result.get('_llm_metadata', {}).get('prompt_version')} "
+                                f"latency_ms={result.get('_llm_metadata', {}).get('latency_ms', 0)} "
+                                f"tokens={result.get('_llm_metadata', {}).get('total_tokens', 0)}"
+                            ),
+                        )
+            except LLMUnavailable as error:
+                # Optional AI must never prevent the deterministic pipeline.
+                with connect() as db:
+                    add_event(
+                        db,
+                        doc_id,
+                        "llm_enrichment_unavailable",
+                        f"generation={generation_id} reason={str(error)[:180]}",
+                    )
+            except Exception as error:  # noqa: BLE001
+                # Fail closed around provider integration, not around core extraction.
+                with connect() as db:
+                    add_event(
+                        db,
+                        doc_id,
+                        "llm_enrichment_error",
+                        f"generation={generation_id} exception={type(error).__name__}",
+                    )
             result["page_start"] = segment[0][0]
             result["page_end"] = segment[-1][0]
             results.append(result)
@@ -366,6 +404,23 @@ def process_document(
 
                 invoice_id = cursor.lastrowid
 
+                if values["supplier"]:
+                    supplier_name = str(values["supplier"]).strip()[:200]
+                    supplier_cursor = db.execute(
+                        """INSERT INTO suppliers(
+                               tenant_id, name, created_at, updated_at
+                           ) VALUES (?, ?, ?, ?)
+                           ON CONFLICT(tenant_id, name) DO NOTHING""",
+                        (tenant_id, supplier_name, now(), now()),
+                    )
+                    if supplier_cursor.rowcount:
+                        add_event(
+                            db,
+                            doc_id,
+                            "supplier_auto_created",
+                            f"supplier={supplier_name[:100]} source=invoice_extraction",
+                        )
+
                 for item_index, item in enumerate(
                     result["line_items"], 1
                 ):
@@ -405,6 +460,16 @@ def process_document(
                         values,
                     )
                 )
+
+                if result.get("extractor", "").endswith("+gemini"):
+                    issues.append(
+                        Issue(
+                            "AI-REVIEW-001",
+                            "warning",
+                            None,
+                            "AI-assisted values or line items were added. Verify every suggestion against the original document before approval.",
+                        )
+                    )
 
                 write_issues(db, invoice_id, issues)
 

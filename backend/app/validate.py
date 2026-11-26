@@ -27,6 +27,7 @@ RULES = {
     "VAL-DUP-001": "Possible duplicate invoice (same supplier and invoice number)",
     "VAL-XDOC-001": "Cross-document mismatch: the same invoice in another file has different values",
     "VAL-XDOC-002": "Cross-document verification passed (document vs spreadsheet values match)",
+    "AI-REVIEW-001": "AI-assisted extraction suggestion requires human verification",
 }
 REQUIRED = {"invoice_number": "error", "invoice_date": "error", "supplier": "error",
             "total": "error", "customer": "warning", "currency": "warning"}

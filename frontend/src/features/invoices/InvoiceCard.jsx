@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api } from "../../api.js";
+import { useEffect, useState } from "react";
+import { api, openOriginal } from "../../api.js";
 import IssueList from "./IssueList.jsx";
 
 const FIELD_LABELS = {
@@ -12,12 +12,33 @@ const FIELD_LABELS = {
 const FIELD_KEYS = Object.keys(FIELD_LABELS);
 const ITEM_ATTRS = ["description", "quantity", "unit_price", "amount"];
 
-export default function InvoiceCard({ inv, onChanged }) {
+export default function InvoiceCard({ inv, filename, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [approval, setApproval] = useState(null);
+  const [poMatch, setPoMatch] = useState(null);
+
+  useEffect(() => {
+    api.getApproval(inv.id).then(setApproval).catch(() => {});
+  }, [inv.id, inv.correction_count]);
+
+  const setApprovalStatus = async (status) => {
+    setBusy(true); setErr(null);
+    try {
+      setApproval(await api.updateApproval(inv.id, { status, note: "Updated from invoice review" }));
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const checkPo = async () => {
+    setBusy(true); setErr(null);
+    try { setPoMatch(await api.matchPurchaseOrder(inv.id)); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
 
   const start = () => {
     setDraft({
@@ -58,12 +79,25 @@ export default function InvoiceCard({ inv, onChanged }) {
   return (
     <article className="invoice">
       <div className="invhead">
-        <h3>Invoice {inv.seq}{inv.page_start !== inv.page_end ? ` (pages ${inv.page_start}–${inv.page_end})` : ""}
+        <span className="actions">
+          {inv.extractor?.includes("gemini") && <span className="chip warn">AI-assisted fields — verify</span>}
+          {!editing && <button className="secondary" onClick={() => openOriginal(inv.document_id, filename).catch((e) => setErr(e.message))}>Open original file</button>}
+          {!editing && inv.correction_count > 0 && <button className="secondary" onClick={() => api.downloadCorrectedPdf(inv.id).catch((e) => setErr(e.message))}>Download corrected PDF</button>}
+          {!editing && inv.correction_count > 0 && <button className="secondary" onClick={() => api.downloadCorrectedXlsx(inv.id).catch((e) => setErr(e.message))}>Download corrected Excel</button>}
+        </span>
+                <h3>Invoice {inv.seq}{inv.page_start !== inv.page_end ? ` (pages ${inv.page_start}–${inv.page_end})` : ""}
           {inv.correction_count > 0 && <span className="chip busy" title="Number of audited manual changes"> {inv.correction_count} correction(s)</span>}</h3>
         {!editing && <button onClick={start}>Edit</button>}
       </div>
       {err && <p className="err" role="alert">{err}</p>}
       <IssueList issues={inv.issues} onResolve={resolve} busy={busy} />
+      <div className="editbar">
+        <span className="chip">Approval: {approval?.status || "pending_review"}</span>
+        <button className="secondary" disabled={busy} onClick={() => setApprovalStatus("approved")}>Approve</button>
+        <button className="secondary" disabled={busy} onClick={() => setApprovalStatus("rejected")}>Reject</button>
+        <button className="secondary" disabled={busy} onClick={checkPo}>Check PO match</button>
+      </div>
+      {poMatch && <p className="banner busy">Purchase-order match: <strong>{poMatch.status}</strong> · {poMatch.matches.length} candidate(s)</p>}
       <table className="fields">
         <thead><tr><th>Field</th><th>Value</th><th title="Heuristic rule confidence, not a calibrated probability">Confidence</th><th>Source text</th></tr></thead>
         <tbody>

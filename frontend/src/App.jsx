@@ -7,6 +7,7 @@ import Search from "./features/search/Search.jsx";
 import Uploader from "./features/upload/Uploader.jsx";
 import DocList from "./features/documents/DocList.jsx";
 import Inspector from "./features/documents/Inspector.jsx";
+import BusinessDashboard from "./features/business/BusinessDashboard.jsx";
 
 function Workspace({ user, onLogout }) {
   const [docs, setDocs] = useState([]);
@@ -14,7 +15,8 @@ function Workspace({ user, onLogout }) {
   const [error, setError] = useState(null);
 
   const [ocr, setOcr] = useState(null);
-  useEffect(() => { api.health().then((h) => setOcr(h.ocr)).catch(() => {}); }, []);
+  const [llm, setLlm] = useState(null);
+  useEffect(() => { api.health().then((h) => { setOcr(h.ocr); setLlm(h.llm); }).catch(() => {}); }, []);
 
   const refresh = useCallback(async () => {
     try { setDocs((await api.listDocuments()).documents); setError(null); }
@@ -34,10 +36,13 @@ function Workspace({ user, onLogout }) {
 
   return (
     <div className="app">
-      <header className="top"><h1>Document Intelligence</h1><Search onOpen={setSelected} /><span className="account-label">{user.email}</span><button className="secondary" onClick={onLogout}>Sign out</button></header>
+      <header className="top"><h1>DocIntel</h1><Search onOpen={setSelected} /><button className="secondary" onClick={() => api.exportInvoicesXlsx().catch((e) => setError(e.message))}>Export Excel</button><button className="secondary" onClick={() => api.exportInvoicesCsv().catch((e) => setError(e.message))}>Export CSV</button><span className="account-label">{user.email}</span><button className="secondary" onClick={onLogout}>Sign out</button></header>
       {error && <p className="banner bad">{error}</p>}
       {ocr && !ocr.available && <p className="banner warn" role="alert"><strong>OCR is unavailable:</strong> scanned PDFs and images cannot be processed (digital PDFs, spreadsheets and CSV still work). {ocr.hint}</p>}
+      {llm?.enabled && !llm.available && <p className="banner warn" role="status">AI enrichment is enabled but not configured. Set the Gemini API key on the backend; deterministic extraction remains available.</p>}
+      {llm?.available && <p className="banner busy" role="status">Gemini AI enrichment is enabled ({llm.model}). AI suggestions are marked for review.</p>}
       {user.role === "admin" && <AdminPanel />}
+      <BusinessDashboard />
       <main>
         <aside><Uploader onUploaded={refresh} />
           {docs.some((d) => d.status === "failed") && <button className="secondary wide" onClick={retryFailed}>Retry all failed ({docs.filter((d) => d.status === "failed").length})</button>}

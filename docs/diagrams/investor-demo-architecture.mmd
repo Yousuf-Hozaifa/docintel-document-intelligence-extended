@@ -1,0 +1,27 @@
+flowchart TD
+    U[Business user] --> UI[React workspace]
+    UI --> API[FastAPI API and tenant authorization]
+    API --> UP[Upload validation and SHA-256 deduplication]
+    UP --> Q[SQLite job queue and document store]
+    Q --> W[Background worker]
+    W --> R[PDF, image, TIFF, Excel and CSV readers]
+    R --> OCR[Tesseract OCR when required]
+    OCR --> RULES[Deterministic invoice extraction]
+    R --> RULES
+    RULES --> LLM{Gemini enabled?}
+    LLM -->|No| VAL[Deterministic financial validation]
+    LLM -->|Yes: synthetic demo data| G[Gemini JSON enrichment]
+    G --> MERGE[Fill missing fields only; mark AI candidates]
+    MERGE --> VAL
+    VAL --> DB[(Invoices, line items, issues, corrections, events)]
+    DB --> REVIEW[Human review and correction]
+    REVIEW --> APPROVAL[Approval workflow]
+    APPROVAL --> EXPORT[CSV and XLSX exports]
+    EXPORT --> MAP[Smart Data Mapping]
+    MAP --> SHEETS{Google Sheets configured?}
+    SHEETS -->|Yes| GS[Append via server-side service account]
+    SHEETS -->|No| LOCAL[Download locally]
+    DB --> DASH[Accounts-payable dashboard and supplier directory]
+    DB --> PO[Purchase-order matching]
+    ORIGINAL[Immutable original upload] --> REVIEW
+    REVIEW --> PDF[Generated corrected-data PDF summary]

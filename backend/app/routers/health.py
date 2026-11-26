@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from ..readers import ocr_status
 from ..validate import RULES
+from ..llm import llm_status
 
 
 router = APIRouter()
@@ -21,6 +22,7 @@ def health():
             "version": status["version"],
             "hint": status["hint"],
         },
+        "llm": llm_status(),
     }
 
 
