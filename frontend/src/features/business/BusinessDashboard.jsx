@@ -27,12 +27,12 @@ export default function BusinessDashboard() {
   const load = useCallback(async () => {
     try {
       const [summary, supplierData, mappingData, health] = await Promise.all([
-        api.dashboard(), api.suppliers(), api.mappings(), api.health(),
+        api.dashboard(), api.suppliers(), api.mappings(), api.googleSheetsStatus(),
       ]);
       setData(summary);
       setSuppliers(supplierData.suppliers || []);
       setMappings(mappingData.mappings || []);
-      setGoogleSheets(health.google_sheets || null);
+      setGoogleSheets(health || null);
       setError("");
     } catch (e) { setError(e.message); }
   }, []);
