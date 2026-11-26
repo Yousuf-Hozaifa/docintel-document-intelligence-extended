@@ -327,6 +327,15 @@ def process_document(
                         "llm_enrichment_unavailable",
                         f"generation={generation_id} reason={str(error)[:180]}",
                     )
+            except Exception as error:  # noqa: BLE001
+                # Fail closed around provider integration, not around core extraction.
+                with connect() as db:
+                    add_event(
+                        db,
+                        doc_id,
+                        "llm_enrichment_error",
+                        f"generation={generation_id} exception={type(error).__name__}",
+                    )
             result["page_start"] = segment[0][0]
             result["page_end"] = segment[-1][0]
             results.append(result)
