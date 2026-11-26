@@ -37,7 +37,11 @@ export default function BusinessDashboard() {
     } catch (e) { setError(e.message); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 15000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   const saveMapping = async (event) => {
     event.preventDefault();
