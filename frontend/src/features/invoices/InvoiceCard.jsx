@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import IssueList from "./IssueList.jsx";
 
@@ -18,6 +18,27 @@ export default function InvoiceCard({ inv, onChanged }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [approval, setApproval] = useState(null);
+  const [poMatch, setPoMatch] = useState(null);
+
+  useEffect(() => {
+    api.getApproval(inv.id).then(setApproval).catch(() => {});
+  }, [inv.id, inv.correction_count]);
+
+  const setApprovalStatus = async (status) => {
+    setBusy(true); setErr(null);
+    try {
+      setApproval(await api.updateApproval(inv.id, { status, note: "Updated from invoice review" }));
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const checkPo = async () => {
+    setBusy(true); setErr(null);
+    try { setPoMatch(await api.matchPurchaseOrder(inv.id)); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
 
   const start = () => {
     setDraft({
@@ -69,6 +90,13 @@ export default function InvoiceCard({ inv, onChanged }) {
       </div>
       {err && <p className="err" role="alert">{err}</p>}
       <IssueList issues={inv.issues} onResolve={resolve} busy={busy} />
+      <div className="editbar">
+        <span className="chip">Approval: {approval?.status || "pending_review"}</span>
+        <button className="secondary" disabled={busy} onClick={() => setApprovalStatus("approved")}>Approve</button>
+        <button className="secondary" disabled={busy} onClick={() => setApprovalStatus("rejected")}>Reject</button>
+        <button className="secondary" disabled={busy} onClick={checkPo}>Check PO match</button>
+      </div>
+      {poMatch && <p className="banner busy">Purchase-order match: <strong>{poMatch.status}</strong> · {poMatch.matches.length} candidate(s)</p>}
       <table className="fields">
         <thead><tr><th>Field</th><th>Value</th><th title="Heuristic rule confidence, not a calibrated probability">Confidence</th><th>Source text</th></tr></thead>
         <tbody>
