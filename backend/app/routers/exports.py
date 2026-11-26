@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from decimal import Decimal, InvalidOperation
 
 import fitz
 from fastapi import APIRouter, HTTPException, Request
@@ -19,6 +20,26 @@ FIELDS = (
     "invoice_number", "invoice_date", "supplier", "customer",
     "subtotal", "tax", "total", "currency",
 )
+NUMERIC_FIELDS = {
+    "subtotal", "tax", "total", "quantity", "unit_price", "amount",
+    "idx", "correction_count",
+}
+
+
+def _safe_cell(value, field: str | None = None):
+    """Prevent spreadsheet formula injection while preserving numeric negatives."""
+    if not isinstance(value, str) or not value.startswith(("=", "+", "-", "@")):
+        return value
+    if field in NUMERIC_FIELDS:
+        try:
+            number = Decimal(value)
+            if number.is_finite():
+                return value
+        except (InvalidOperation, ValueError):
+            pass
+    return "'" + value
+
+
 HEADERS = (
     "Invoice Number", "Invoice Date", "Supplier", "Customer",
     "Subtotal", "Tax", "Total", "Currency", "Validation Status",
@@ -82,10 +103,10 @@ def _excel_bytes(records, include_all: bool, mapping: dict | None = None) -> byt
     sheet.append(headers)
     for record in records:
         if mapping:
-            sheet.append([record.get(field) for field in mapping.values()])
+            sheet.append([_safe_cell(record.get(field), field) for field in mapping.values()])
         else:
             sheet.append([
-                record.get(name) for name in FIELDS
+                _safe_cell(record.get(name), name) for name in FIELDS
             ] + [
                 record["validation_status"],
                 "Yes" if record["needs_review"] else "No",
@@ -105,8 +126,10 @@ def _excel_bytes(records, include_all: bool, mapping: dict | None = None) -> byt
         for record in records:
             for item in record["line_items"]:
                 detail.append([
-                    item["idx"], item["description"], item["quantity"],
-                    item["unit_price"], item["amount"],
+                    item["idx"], _safe_cell(item["description"], "description"),
+                    _safe_cell(item["quantity"], "quantity"),
+                    _safe_cell(item["unit_price"], "unit_price"),
+                    _safe_cell(item["amount"], "amount"),
                 ])
         detail.freeze_panes = "A2"
     output = io.BytesIO()
@@ -120,18 +143,18 @@ def _csv_bytes(records, mapping: dict | None = None) -> bytes:
     if mapping:
         writer.writerow(list(mapping.keys()))
         for record in records:
-            writer.writerow([record.get(field) for field in mapping.values()])
+            writer.writerow([_safe_cell(record.get(field), field) for field in mapping.values()])
     else:
         writer.writerow(list(HEADERS) + ["Line Items"])
         for record in records:
             writer.writerow(
-                [record.get(name) for name in FIELDS]
+                [_safe_cell(record.get(name), name) for name in FIELDS]
                 + [
                     record["validation_status"],
                     "Yes" if record["needs_review"] else "No",
                     record["filename"],
                     record["correction_count"],
-                    json.dumps(record["line_items"], ensure_ascii=False),
+                    json.dumps([{**item, "description": _safe_cell(item.get("description"), "description")} for item in record["line_items"]], ensure_ascii=False),
                 ]
             )
     return output.getvalue().encode("utf-8-sig")
@@ -188,7 +211,7 @@ def export_google_sheets(request: Request, mapping_id: int | None = None):
     if mapping:
         values = [list(mapping.keys())]
         values.extend([
-            [record.get(field) for field in mapping.values()]
+            [_safe_cell(record.get(field), field) for field in mapping.values()]
             for record in records
         ])
     else:
@@ -201,7 +224,7 @@ def export_google_sheets(request: Request, mapping_id: int | None = None):
                     "Yes" if record["needs_review"] else "No",
                     record["filename"],
                     record["correction_count"],
-                    json.dumps(record["line_items"], ensure_ascii=False),
+                    json.dumps([{**item, "description": _safe_cell(item.get("description"), "description")} for item in record["line_items"]], ensure_ascii=False),
                 ]
             )
 
