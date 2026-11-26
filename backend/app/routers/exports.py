@@ -4,7 +4,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-from urllib.parse import quote
 
 import fitz
 from fastapi import APIRouter, HTTPException, Request
