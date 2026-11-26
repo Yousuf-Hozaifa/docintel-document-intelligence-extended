@@ -2,9 +2,8 @@
 """FastAPI application: upload, status, results, search."""
 
 
+import asyncio
 import os
-
-
 from contextlib import asynccontextmanager
 
 from fastapi import (
@@ -19,6 +18,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from . import worker
+from .backup_scheduler import (
+    BackupGateMiddleware,
+    _backup_config,
+    backup_enabled,
+    backup_gate,
+    scheduler_loop,
+)
 from .config import get_settings
 from .logging_config import configure_logging
 from .db import connect, init_db
@@ -36,13 +42,30 @@ from .routers.admin import router as admin_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
-    init_db()
-    bootstrap_legacy_api_key()
-    bootstrap_admin()
-    worker.start()
-    yield
-    worker.stop()
+    scheduler_task = None
+    try:
+        # Validate persistent storage before init_db can create files.
+        if backup_enabled():
+            _backup_config(require_mount=True)
 
+        init_db()
+        bootstrap_legacy_api_key()
+        bootstrap_admin()
+        worker.start()
+
+        if backup_enabled():
+            scheduler_task = asyncio.create_task(
+                scheduler_loop(), name="docintel-backup-scheduler"
+            )
+        yield
+    finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
+        worker.stop()
 
 app = FastAPI(
     title="Care Guide Document Intelligence API",
@@ -50,6 +73,8 @@ app = FastAPI(
     lifespan=lifespan,
     dependencies=[Depends(require_tenant)],
 )
+
+app.add_middleware(BackupGateMiddleware, gate=backup_gate)
 
 app.add_middleware(
     CORSMiddleware,

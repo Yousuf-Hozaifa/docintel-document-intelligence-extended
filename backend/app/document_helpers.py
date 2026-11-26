@@ -6,15 +6,40 @@ from .config import get_settings
 
 
 def _stored_path(stored_name: str):
-    """Return a stored upload path only when it stays inside the upload directory."""
-    base = get_settings().upload_dir.resolve()
-    path = (base / stored_name).resolve()
+    """Return a safe, flat upload path; reject traversal and symlinks."""
+    from pathlib import PureWindowsPath
 
-    return (
-        path
-        if path.is_relative_to(base) and path != base
-        else None
-    )
+    if (
+        not isinstance(stored_name, str)
+        or not stored_name
+        or stored_name in {".", ".."}
+        or "\x00" in stored_name
+        or "/" in stored_name
+        or "\\" in stored_name
+        or ":" in stored_name
+        or PureWindowsPath(stored_name).drive
+    ):
+        return None
+
+    try:
+        base = get_settings().upload_dir.resolve()
+        candidate = base / stored_name
+
+        # Do not follow even an in-directory symlink. Check before resolve().
+        if candidate.is_symlink():
+            return None
+
+        path = candidate.resolve(strict=False)
+        if path == base or path.parent != base:
+            return None
+
+        # A stored upload must be a regular file if it already exists.
+        if path.exists() and not path.is_file():
+            return None
+
+        return path
+    except (OSError, RuntimeError, ValueError):
+        return None
 
 
 def _doc_row(row) -> dict:

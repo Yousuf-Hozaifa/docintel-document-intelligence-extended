@@ -9,8 +9,8 @@ Failed attempts remove only their own staging data.
 import json
 import time
 
-from .config import get_settings
 from .db import add_event, connect, now
+from .document_helpers import _stored_path
 from .errors import CorruptFile, DocumentError, NoContent
 from .extract import FIELDS, extract_invoice, extract_register, segment_pages
 from .readers import detect_type, open_pages
@@ -156,8 +156,6 @@ def process_document(
     Permanent document errors are raised as DocumentError subclasses.
     Other exceptions may be retried by the worker.
     """
-    settings = get_settings()
-
     with connect() as db:
         doc = db.execute(
             "SELECT * FROM documents WHERE id=?",
@@ -170,9 +168,10 @@ def process_document(
         stored_name = doc["stored_name"]
         filename = doc["filename"]
 
-    path = settings.upload_dir / stored_name
-
-    if not path.exists():
+    path = _stored_path(stored_name)
+    if path is None:
+        raise CorruptFile("Stored file path is invalid")
+    if not path.is_file():
         raise CorruptFile("Stored file is missing")
 
     t0 = time.perf_counter()
