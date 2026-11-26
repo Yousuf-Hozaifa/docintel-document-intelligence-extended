@@ -29,7 +29,11 @@ Deterministic, rule-based extraction remains the baseline. Optional Gemini enric
 | `backup_scheduler.py` | optional single-instance Render request gate, scheduled encrypted snapshots, round-trip verification, and retention |
 | `pipeline.py` | orchestrates read → store → extract → validate → cross-check → persist (+ optional embedding) |
 | `readers.py` | file-type detection and lazy readers (PDF text/OCR, images/TIFF, XLSX, XLS, CSV); bounded memory |
-| `extract.py` | rule-based invoice extractor, invoice splitter, spreadsheet register parser, OCR confidence attachment |\n| `llm.py` | optional Gemini adapter, JSON allowlisting, missing-field enrichment, prompt version and usage metadata |\n| `google_sheets.py` | optional service-account authentication and append-only Google Sheets export |\n| `routers/exports.py` | tenant-scoped CSV/XLSX and corrected PDF-summary downloads; Google Sheets export |\n| `routers/business.py` | dashboard metrics, supplier directory, approvals, purchase-order matching and mapping templates |
+| `extract.py` | rule-based invoice extractor, invoice splitter, spreadsheet register parser, OCR confidence attachment |
+| `llm.py` | optional Gemini adapter, JSON allowlisting, missing-field enrichment, prompt version and usage metadata |
+| `google_sheets.py` | optional service-account authentication and append-only Google Sheets export |
+| `routers/exports.py` | tenant-scoped CSV/XLSX and corrected PDF-summary downloads; Google Sheets export |
+| `routers/business.py` | dashboard metrics, supplier directory, approvals, purchase-order matching and mapping templates |
 | `validate.py` | rule engine (`RULES` catalogue at `/api/rules`) |
 | `review.py` | duplicate and cross-document verification, issue persistence, re-validation |
 | `corrections.py` | audited manual corrections, "mark reviewed" |
@@ -58,7 +62,9 @@ Deterministic, rule-based extraction remains the baseline. Optional Gemini enric
 | server stops mid-job | on start, `running` jobs are re-queued |
 | identical file uploaded again | reported as `duplicate`; no new job (failed documents can be re-uploaded or reprocessed) |
 | duplicate / conflicting invoice across files | flagged on **both** files (`VAL-DUP-001`, `VAL-XDOC-001`) |
-| embedding/semantic failure | logged as an event; the document still completes |\n| Gemini disabled, rate-limited or unavailable | deterministic extraction continues; provider error is logged without exposing the API key |\n| Google Sheets not configured or permission denied | export returns a clear unavailable/permission error; no fake success is reported |
+| embedding/semantic failure | logged as an event; the document still completes |
+| Gemini disabled, rate-limited or unavailable | deterministic extraction continues; provider error is logged without exposing the API key |
+| Google Sheets not configured or permission denied | export returns a clear unavailable/permission error; no fake success is reported |
 | reprocess / delete | related documents' duplicate and cross-check flags are refreshed |
 | **untested here:** disk full, SQLite lock contention under many concurrent writers, very large uploads over a slow link | not exercised |
 
