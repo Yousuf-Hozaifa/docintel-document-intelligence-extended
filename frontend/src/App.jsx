@@ -7,6 +7,7 @@ import Search from "./features/search/Search.jsx";
 import Uploader from "./features/upload/Uploader.jsx";
 import DocList from "./features/documents/DocList.jsx";
 import Inspector from "./features/documents/Inspector.jsx";
+import BusinessDashboard from "./features/business/BusinessDashboard.jsx";
 
 function Workspace({ user, onLogout }) {
   const [docs, setDocs] = useState([]);
@@ -41,6 +42,7 @@ function Workspace({ user, onLogout }) {
       {llm?.enabled && !llm.available && <p className="banner warn" role="status">AI enrichment is enabled but not configured. Set the Gemini API key on the backend; deterministic extraction remains available.</p>}
       {llm?.available && <p className="banner busy" role="status">Gemini AI enrichment is enabled ({llm.model}). AI suggestions are marked for review.</p>}
       {user.role === "admin" && <AdminPanel />}
+      <BusinessDashboard />
       <main>
         <aside><Uploader onUploaded={refresh} />
           {docs.some((d) => d.status === "failed") && <button className="secondary wide" onClick={retryFailed}>Retry all failed ({docs.filter((d) => d.status === "failed").length})</button>}
