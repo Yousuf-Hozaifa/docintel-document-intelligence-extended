@@ -82,7 +82,7 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
     model = status["model"]
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model + ":generateContent?key=" + api_key
+        + model + ":generateContent"
     )
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -91,7 +91,10 @@ def extract_candidates(document_text: str) -> dict[str, Any] | None:
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
         method="POST",
     )
     started = time.perf_counter()
