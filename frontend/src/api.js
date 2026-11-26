@@ -79,6 +79,7 @@ export const api = {
   exportInvoicesXlsx: (mappingId) => downloadFile("/api/exports/invoices.xlsx" + (mappingId ? "?mapping_id=" + mappingId : ""), "docintel-invoices.xlsx"),
   exportInvoicesCsv: (mappingId) => downloadFile("/api/exports/invoices.csv" + (mappingId ? "?mapping_id=" + mappingId : ""), "docintel-invoices.csv"),
   dashboard: () => request("/api/business/dashboard"),
+  googleSheetsStatus: () => request("/api/business/google-sheets/status"),
   exportGoogleSheets: (mappingId) => request("/api/exports/google-sheets" + (mappingId ? "?mapping_id=" + mappingId : ""), { method: "POST" }),
   suppliers: () => request("/api/business/suppliers"),
   saveSupplier: (body) => request("/api/business/suppliers", json("POST", body)),
