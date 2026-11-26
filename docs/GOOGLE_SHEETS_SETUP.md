@@ -7,7 +7,7 @@ DocIntel can append the active tenant's invoice register to a spreadsheet throug
 2. Enable the Google Sheets API.
 3. Create a service account and generate a JSON key for the demo.
 4. Open the destination spreadsheet and share it with the service-account email address as an Editor.
-5. Copy each spreadsheet ID from its URL. Get tenant IDs from the application database (`SELECT id, name FROM tenants`).
+5. Ensure each spreadsheet has a tab named `Invoices` (or set `GOOGLE_SHEETS_RANGE` to an existing tab). Copy each spreadsheet ID from its URL. Get tenant IDs from the application database (`SELECT id, name FROM tenants`).
 
 Google documents service accounts as suitable for application-owned data and specific shared documents. The service account must be granted access to the individual spreadsheet. See [Google service-account authentication](https://developers.google.com/identity/protocols/oauth2/service-account) and [credential setup](https://developers.google.com/workspace/guides/create-credentials).
 
