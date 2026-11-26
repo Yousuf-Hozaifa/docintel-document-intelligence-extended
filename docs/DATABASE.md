@@ -6,8 +6,12 @@ _Base schema from `backend/app/db.py` plus versioned migrations in `backend/app/
 
 ```mermaid
 erDiagram
+  tenants {
+    INTEGER id PK
+  }
   documents {
     INTEGER id PK
+    INTEGER tenant_id FK
     TEXT filename
     TEXT stored_name
     TEXT sha256
@@ -105,6 +109,55 @@ erDiagram
     INTEGER dim
     BLOB embedding
   }
+  suppliers {
+    INTEGER id PK
+    INTEGER tenant_id FK
+    TEXT name
+    TEXT tax_id
+    TEXT email
+    TEXT phone
+    TEXT payment_terms
+    TEXT created_at
+    TEXT updated_at
+  }
+  purchase_orders {
+    INTEGER id PK
+    INTEGER tenant_id FK
+    INTEGER supplier_id FK
+    TEXT po_number
+    TEXT supplier_name
+    TEXT currency
+    TEXT total
+    TEXT status
+    TEXT created_at
+  }
+  purchase_order_lines {
+    INTEGER id PK
+    INTEGER purchase_order_id FK
+    INTEGER idx
+    TEXT description
+    TEXT quantity
+    TEXT unit_price
+    TEXT amount
+  }
+  invoice_approvals {
+    INTEGER id PK
+    INTEGER tenant_id FK
+    INTEGER invoice_id FK
+    TEXT status
+    TEXT submitted_by
+    TEXT approved_by
+    TEXT note
+    TEXT updated_at
+  }
+  mapping_templates {
+    INTEGER id PK
+    INTEGER tenant_id FK
+    TEXT name
+    TEXT mapping_json
+    TEXT created_at
+    TEXT updated_at
+  }
   events {
     INTEGER id PK
     INTEGER document_id FK
@@ -120,6 +173,14 @@ erDiagram
   invoices ||--o{ corrections : "has"
   documents ||--o{ chunks : "has"
   documents ||--o{ events : "has"
+  tenants ||--o{ documents : "owns"
+  tenants ||--o{ suppliers : "owns"
+  suppliers ||--o{ purchase_orders : "supplier"
+  tenants ||--o{ purchase_orders : "owns"
+  purchase_orders ||--o{ purchase_order_lines : "contains"
+  tenants ||--o{ invoice_approvals : "owns"
+  invoices ||--o| invoice_approvals : "approval"
+  tenants ||--o{ mapping_templates : "owns"
 ```
 
 `page_fts` is an FTS5 virtual table (`text`, plus unindexed `document_id`, `page_no`; Porter stemming) that powers keyword search. SQLite cannot cascade deletes into it, so the API removes its rows explicitly.
