@@ -206,7 +206,7 @@ def export_google_sheets(request: Request, mapping_id: int | None = None):
             )
 
     try:
-        result = append_rows(values)
+        result = append_rows(values, tenant_id)
     except GoogleSheetsUnavailable as error:
         raise HTTPException(503, str(error)) from error
     return {"exported_rows": len(records), **result}
