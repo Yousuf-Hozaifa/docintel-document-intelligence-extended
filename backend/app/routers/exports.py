@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from openpyxl import Workbook
 
 from ..db import connect
+from ..google_sheets import GoogleSheetsUnavailable, append_rows
 
 router = APIRouter()
 
@@ -175,6 +176,41 @@ def export_xlsx(request: Request, mapping_id: int | None = None):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="docintel-invoices.xlsx"'},
     )
+
+
+@router.post("/exports/google-sheets")
+def export_google_sheets(request: Request, mapping_id: int | None = None):
+    """Append the active invoice register to a configured tenant-authorized sheet."""
+    tenant_id = _tenant_id(request)
+    with connect() as db:
+        records = _records(db, tenant_id)
+        mapping = _load_mapping(db, tenant_id, mapping_id)
+
+    if mapping:
+        values = [list(mapping.keys())]
+        values.extend([
+            [record.get(field) for field in mapping.values()]
+            for record in records
+        ])
+    else:
+        values = [list(HEADERS) + ["Line Items"]]
+        for record in records:
+            values.append(
+                [record.get(name) for name in FIELDS]
+                + [
+                    record["validation_status"],
+                    "Yes" if record["needs_review"] else "No",
+                    record["filename"],
+                    record["correction_count"],
+                    json.dumps(record["line_items"], ensure_ascii=False),
+                ]
+            )
+
+    try:
+        result = append_rows(values)
+    except GoogleSheetsUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    return {"exported_rows": len(records), **result}
 
 
 @router.get("/invoices/{invoice_id}/corrected.xlsx")
