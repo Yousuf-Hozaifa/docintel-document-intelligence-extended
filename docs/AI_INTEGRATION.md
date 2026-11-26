@@ -9,7 +9,7 @@ Set these variables in the backend process environment:
 ```powershell
 $env:DOCINTEL_LLM_ENABLED = "true"
 $env:GEMINI_API_KEY = "YOUR_KEY"
-$env:GEMINI_MODEL = "gemini-2.5-flash"
+$env:GEMINI_MODEL = "gemini-3.5-flash-lite"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
