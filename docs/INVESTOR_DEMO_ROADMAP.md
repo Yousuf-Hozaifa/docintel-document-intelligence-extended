@@ -24,7 +24,7 @@ This branch extends the assessment application without changing the original rep
 Set only on the backend:
 - `DOCINTEL_LLM_ENABLED=true`
 - `GEMINI_API_KEY=<secret>`
-- `GEMINI_MODEL=gemini-2.5-flash` (override when a currently supported free-tier model changes)
+- `GEMINI_MODEL=gemini-3.5-flash-lite` (override when a currently supported free-tier model changes)
 
 Gemini free-tier data may be used by Google to improve its products. Therefore this demo integration must use synthetic/non-confidential invoices unless the data owner has explicitly approved the transfer after reviewing current provider terms. Free-tier quotas and model availability can change. No paid fallback is implemented.
 
