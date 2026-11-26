@@ -49,3 +49,45 @@ def test_llm_status_never_exposes_key(monkeypatch):
     status = llm.llm_status()
     assert status["available"] is True
     assert "secret" not in json.dumps(status)
+
+
+
+def test_gemini_request_uses_secret_header_and_parses_json(monkeypatch):
+    monkeypatch.setenv("DOCINTEL_LLM_ENABLED", "true")
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-demo-key")
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+
+    payload = {
+        "candidates": [{
+            "content": {"parts": [{
+                "text": '{"invoice_number":"INV-42","total":"125.00","line_items":[]}'
+            }]}
+        }],
+        "usageMetadata": {
+            "promptTokenCount": 100,
+            "candidatesTokenCount": 20,
+            "totalTokenCount": 120,
+        },
+    }
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        assert timeout == 25
+        assert "secret-demo-key" not in request.full_url
+        assert request.get_header("X-goog-api-key") == "secret-demo-key"
+        return FakeResponse()
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    result = llm.extract_candidates("Synthetic invoice INV-42 total 125.00")
+    assert result["invoice_number"] == "INV-42"
+    assert result["_usage"]["total_tokens"] == 120
+    assert result["_usage"]["latency_ms"] >= 0
