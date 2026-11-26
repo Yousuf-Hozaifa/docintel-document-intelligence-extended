@@ -3,8 +3,10 @@
 ## Purpose
 DocIntel retains its deterministic extractor as the baseline. When enabled, Gemini is called from the backend worker after deterministic extraction. It may fill missing header fields and line items only. Existing deterministic values are never overwritten. Every proposed field is marked as an AI candidate, then processed by the existing deterministic validation rules.
 
-## Enable locally
-Set these variables in the backend process environment:
+## Get a free-tier API key and enable locally
+1. Open [Google AI Studio API keys](https://aistudio.google.com/api-keys) and create a Gemini API key on the free tier. Do not enable billing or select a paid model for this demo.
+2. Use the default model `gemini-3.5-flash-lite`; confirm it is still listed as free before each demo because provider models and quotas can change.
+3. Set these variables in the backend process environment:
 
 ```powershell
 $env:DOCINTEL_LLM_ENABLED = "true"
@@ -13,7 +15,7 @@ $env:GEMINI_MODEL = "gemini-3.5-flash-lite"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-The key must remain in the backend environment. Never use a `VITE_*` variable, commit the key, paste it into an issue, or include it in screenshots. Restart the backend after changing environment variables.
+The key is sent to Google in the `x-goog-api-key` request header and must remain in the backend environment. Never use a `VITE_*` variable, commit the key, paste it into an issue, or include it in screenshots. Restart the backend after changing environment variables.
 
 To disable the provider, set `DOCINTEL_LLM_ENABLED=false` or remove it. The deterministic pipeline then makes no LLM request.
 
